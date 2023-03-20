@@ -1,8 +1,8 @@
-const pageTitle = 'Contra Costa County 2022 General Election Results';
-const precinctIDField = 'PrecinctID';
-const precinctLabelField = 'PrecinctID';
-const grouped = false;
-const additionalGISData = false;
+const pageTitle = 'Marin County 2022 General Election Results';
+const precinctIDField = 'VotingPrecinct';
+const precinctLabelField = 'SubPrecinct';
+const grouped = true;
+const additionalGISData = true;
 
 const map = L.map('map', {preferCanvas: false});
 
