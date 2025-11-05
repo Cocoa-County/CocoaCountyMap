@@ -3,8 +3,6 @@ This is an interactive election map with the goal of providing a template that c
 
 Try it out [Here](https://cocoa-county.github.io/CocoaCountyMap/public/)
 
-If you would like more informatino or a demo, please reach out to me on [Twitter](https://twitter.com/NicholasSpinner) or [LinkedIn](https://www.linkedin.com/in/spinnernicholas/).
-
 # Support This Project
 Please consider supporting this project with a donation. 100% of the proceeds will go towards the continued development of the Interactive Map Project.
 
