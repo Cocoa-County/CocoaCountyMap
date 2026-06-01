@@ -53,7 +53,7 @@ L.Control.ElectionSelector = L.Control.extend({
             },
             mouseleave: function (e) {
                 if(e.relatedTarget === null || container.contains(e.relatedTarget)) e.stopPropagation();
-                else this._close();
+                else if(!window.tourActive) this._close();
             }
         }, this);
 
@@ -69,11 +69,18 @@ L.Control.ElectionSelector = L.Control.extend({
     _addTitle: function(){
         let div = L.DomUtil.create('div', 'election-selector-credits', this._drawer);
 
-        div.innerHTML = `
-        <p>
-            <b>${this._title}</b><br/>
-            Created by <a href="https://github.com/Spinnernicholas" target="_blank">Nick Spinner</a> - <a href="https://github.com/Cocoa-County/CocoaCountyMap">Source Code</a>
-        </p>`;
+        div.innerHTML = `<p><b>Map Controls</b></p>`;
+
+        // Add help button
+        let helpButton = L.DomUtil.create('button', 'election-selector-help-btn', div);
+        helpButton.textContent = 'Help & About';
+        L.DomEvent.on(helpButton, 'click', (e) => {
+            L.DomEvent.stopPropagation(e);
+            const introOverlay = document.getElementById('intro-overlay');
+            if (introOverlay) {
+                introOverlay.classList.remove('hidden');
+            }
+        }, this);
     },
 
     _addControls: function(){
@@ -143,7 +150,10 @@ L.Control.ElectionSelector = L.Control.extend({
             if(!precinct) return this.styleBlank;
             if(precinct.total == 0) return this._buildStyle({fillColor: 'white'});
             if(!precinct.results) return this._buildStyle(this.styleHidden);
-            return this._buildStyle({fillColor: this._colorClassifier[precinct.winner]});
+            let winnerColor = this._getChoiceColor(this._contests[selection.contest], precinct.winner);
+            return this._buildStyle({
+                fillColor: winnerColor || this._colorClassifier[precinct.winner]
+            });
         };
         if(selection.choice === "t") return feature => {
             let precinct = this._contests[selection.contest].precincts[feature.properties[this._precinctIDField]];
@@ -156,8 +166,17 @@ L.Control.ElectionSelector = L.Control.extend({
             if(!precinct) return this.styleBlank;
             if(precinct.total == 0) return this._buildStyle({fillColor: 'white'});
             if(!precinct.results) return this._buildStyle(this.styleHidden);
-            return this._buildStyle({fillColor: this._colorScale(precinct.percentage[selection.choice])});
+            let choiceColor = this._getChoiceColor(this._contests[selection.contest], selection.choice);
+            let colorScale = choiceColor ? chroma.scale(['white', choiceColor]) : this._colorScale;
+            return this._buildStyle({fillColor: colorScale(precinct.percentage[selection.choice])});
         };
+    },
+
+    _getChoiceColor: function(contest, index) {
+        if(!contest || !contest.choices || contest.choices.length === 0) return null;
+        let choice = contest.choices[index];
+        if(!choice || !choice.color) return null;
+        return choice.color;
     },
 
     _buildStyle: function(style){
@@ -169,6 +188,7 @@ L.Control.ElectionSelector = L.Control.extend({
     styleHidden: {fillColor: 'lightgray'},
 
     _close: function(){
+        if(window.tourActive) return;
         this._container.classList.add("closed");
         this._closed = true;
     },
