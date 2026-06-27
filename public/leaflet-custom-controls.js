@@ -12,6 +12,7 @@ L.Control.ElectionSelector = L.Control.extend({
         this._layer = layer;
         this._contests = contests;
         this._precinctIDField = precinctIDField;
+        this._tieDefsContainer = null;
 
         this._colorScale = chroma.scale(['white', '08306b']);
         this._colorClassifier = ['#1f78b4','#e31a1c','#33a02c','#ff7f00','#6a3d9a','#ffff99','#b15928','#a6cee3','#fb9a99','#b2df8a','#fdbf6f','#cab2d6'];
@@ -80,6 +81,8 @@ L.Control.ElectionSelector = L.Control.extend({
 
         this._addContests(Object.values(this._contests));
         this._addChoices(this._contests[this._contestSelector.value].choices);
+        this._getTieDefsRoot(true);
+        this._syncTiePatternDefs(this._getActiveContest());
 
         L.DomEvent.on(this._contestSelector, 'change', this._contestChanged, this);
         L.DomEvent.on(this._choiceSelector, 'change', this._choiceChanged, this);
@@ -113,7 +116,7 @@ L.Control.ElectionSelector = L.Control.extend({
     },
 
     onRemove: function(map) {
-        // Nothing to do here
+        this._clearTiePatternDefs();
     },
 
     _addTitle: function(){
@@ -177,6 +180,7 @@ L.Control.ElectionSelector = L.Control.extend({
         this._layer._map.closePopup();
         L.DomUtil.empty(this._choiceSelector);
         this._addChoices(this._contests[this._contestSelector.value].choices);
+        this._syncTiePatternDefs(this._getActiveContest());
         this._layer.setStyle(this._createStyle());
         this._layer._map.flyToBounds(this._layer.getLayers().reduce((bounds, feature) => {
             if(this._contests[this.selection.contest].precincts[feature.feature.properties[this._precinctIDField]]) bounds.push(feature.getBounds());
@@ -200,10 +204,8 @@ L.Control.ElectionSelector = L.Control.extend({
             if(!precinct) return this.styleBlank;
             if(precinct.total == 0) return this._buildStyle({fillColor: 'white'});
             if(!precinct.results) return this._buildStyle(this.styleHidden);
-            let winnerColor = this._getChoiceColor(this._contests[selection.contest], precinct.winner);
-            return this._buildStyle({
-                fillColor: winnerColor || this._colorClassifier[precinct.winner]
-            });
+            let winnerStyle = this._getWinnerFill(this._contests[selection.contest], precinct.winner);
+            return this._buildStyle(winnerStyle || {fillColor: this._colorClassifier[0]});
         };
         if(selection.choice === "t") return feature => {
             let precinct = this._contests[selection.contest].precincts[feature.properties[this._precinctIDField]];
@@ -229,6 +231,172 @@ L.Control.ElectionSelector = L.Control.extend({
         let color = String(choice.color).trim();
         let namedColor = this._namedChoiceColors[color.toLowerCase()];
         return namedColor || color;
+    },
+
+    _normalizeWinnerIndices: function(winner) {
+        if(Array.isArray(winner)) return winner.filter(index => index !== undefined && index !== null);
+        if(winner === undefined || winner === null) return [];
+        return [winner];
+    },
+
+    _getWinnerColor: function(contest, index) {
+        return this._getChoiceColor(contest, index) || this._colorClassifier[index % this._colorClassifier.length];
+    },
+
+    _getWinnerFill: function(contest, winner) {
+        let winnerIndices = this._normalizeWinnerIndices(winner);
+        if(!winnerIndices.length) return null;
+
+        let winnerColors = winnerIndices.map(index => this._getWinnerColor(contest, index)).filter(Boolean);
+        if(!winnerColors.length) return null;
+        if(winnerColors.length === 1) return {fillColor: winnerColors[0]};
+
+        let tiePatternUrl = this._getTiePatternUrl(winnerColors);
+        return {
+            fillColor: tiePatternUrl || winnerColors[0],
+            tieColors: winnerColors
+        };
+    },
+
+    _getTiePatternUrl: function(colors) {
+        let patternId = this._getTiePatternId(colors);
+        if(this._ensureTiePattern(patternId, colors)) return `url(#${patternId})`;
+        return null;
+    },
+
+    _getActiveContest: function() {
+        if(!this._contestSelector) return null;
+        return this._contests[this._contestSelector.value] || null;
+    },
+
+    _getTiePatternId: function(colors) {
+        return `winner-tie-${colors.map(color => color.replace(/[^a-z0-9]+/gi, '-')).join('-')}`;
+    },
+
+    _getTieDefsRoot: function() {
+        return this._getTieDefsRootInternal(true);
+    },
+
+    _getTieDefsRootInternal: function(createIfMissing) {
+        let svg = this._layer && this._layer._tieDefsRoot ? this._layer._tieDefsRoot : null;
+
+        if(!svg && this._layer && this._layer.getLayers) {
+            for (let layer of this._layer.getLayers()) {
+                let element = layer && layer.getElement && layer.getElement();
+                if (element && element.ownerSVGElement) {
+                    svg = element.ownerSVGElement;
+                    break;
+                }
+            }
+        }
+
+        if(!svg && this._layer && this._layer._path && this._layer._path.ownerSVGElement) {
+            svg = this._layer._path.ownerSVGElement;
+        }
+
+        if(!svg && this._layer && this._layer._map && this._layer._map._renderer && this._layer._map._renderer._container) {
+            svg = this._layer._map._renderer._container;
+        }
+
+        if(!svg) return null;
+
+        let defs = svg.querySelector('#winner-tie-defs');
+        if(defs) return defs;
+
+        if(!createIfMissing) return null;
+
+        let namespace = 'http://www.w3.org/2000/svg';
+        defs = document.createElementNS(namespace, 'defs');
+        defs.setAttribute('id', 'winner-tie-defs');
+        svg.insertBefore(defs, svg.firstChild);
+        return defs;
+    },
+
+    _clearTiePatternDefs: function() {
+        let defs = this._tieDefsContainer;
+        if(defs) {
+            L.DomUtil.empty(defs);
+        }
+    },
+
+    _syncTiePatternDefs: function(contest) {
+        if(!contest || !contest.precincts) return;
+
+        let defs = this._getTieDefsRootInternal(true);
+        if(!defs) return;
+        this._tieDefsContainer = defs;
+
+        L.DomUtil.empty(defs);
+
+        let namespace = 'http://www.w3.org/2000/svg';
+        let seenPatterns = new Set();
+
+        Object.values(contest.precincts).forEach(precinct => {
+            let winnerIndices = this._normalizeWinnerIndices(precinct.winner);
+            if(winnerIndices.length < 2) return;
+
+            let winnerColors = winnerIndices.map(index => this._getWinnerColor(contest, index)).filter(Boolean);
+            if(winnerColors.length < 2) return;
+
+            let patternId = this._getTiePatternId(winnerColors);
+            if(seenPatterns.has(patternId) || defs.querySelector(`#${patternId}`)) return;
+            seenPatterns.add(patternId);
+
+            let pattern = document.createElementNS(namespace, 'pattern');
+            let stripeSize = 12;
+            let patternSize = stripeSize * winnerColors.length;
+
+            pattern.setAttribute('id', patternId);
+            pattern.setAttribute('patternUnits', 'userSpaceOnUse');
+            pattern.setAttribute('width', patternSize);
+            pattern.setAttribute('height', patternSize);
+            pattern.setAttribute('patternTransform', 'rotate(45)');
+            pattern.setAttribute('patternContentUnits', 'userSpaceOnUse');
+
+            winnerColors.forEach((color, index) => {
+                let stripe = document.createElementNS(namespace, 'rect');
+                stripe.setAttribute('x', index * stripeSize);
+                stripe.setAttribute('y', 0);
+                stripe.setAttribute('width', stripeSize);
+                stripe.setAttribute('height', patternSize);
+                stripe.setAttribute('fill', color);
+                pattern.appendChild(stripe);
+            });
+
+            defs.appendChild(pattern);
+        });
+    },
+
+    _ensureTiePattern: function(patternId, colors) {
+        let defs = this._getTieDefsRootInternal(true);
+        if(!defs) return false;
+
+        if(defs.querySelector(`#${patternId}`)) return true;
+
+        let namespace = 'http://www.w3.org/2000/svg';
+        let pattern = document.createElementNS(namespace, 'pattern');
+        let stripeSize = 12;
+        let patternSize = stripeSize * colors.length;
+
+        pattern.setAttribute('id', patternId);
+        pattern.setAttribute('patternUnits', 'userSpaceOnUse');
+        pattern.setAttribute('width', patternSize);
+        pattern.setAttribute('height', patternSize);
+        pattern.setAttribute('patternTransform', 'rotate(45)');
+        pattern.setAttribute('patternContentUnits', 'userSpaceOnUse');
+
+        colors.forEach((color, index) => {
+            let stripe = document.createElementNS(namespace, 'rect');
+            stripe.setAttribute('x', index * stripeSize);
+            stripe.setAttribute('y', 0);
+            stripe.setAttribute('width', stripeSize);
+            stripe.setAttribute('height', patternSize);
+            stripe.setAttribute('fill', color);
+            pattern.appendChild(stripe);
+        });
+
+        defs.appendChild(pattern);
+        return true;
     },
 
     _buildStyle: function(style){

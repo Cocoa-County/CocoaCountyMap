@@ -95,11 +95,13 @@ Aliases are case-insensitive, and raw hex values are used as provided.
 | **Precinct object** |                                   |                   |
 | label               | Precinct display label            | String            |
 | total (optional)    | Total votes in this contest       | Integer           |
-| winner (optional)   | Winning choice index              | Integer           |
+| winner (optional)   | Winning choice index, or array of tied winning choice indexes | Integer or Array of Integers |
 | results (optional)  | Votes per choice                  | Array of Integers |
 | percentage (optional)| Vote share per choice            | Array of Floats   |
 | registeredVoters    | Registered voters in precinct     | Integer           |
 | totalVoters         | Voters who cast ballots           | Integer           |
+
+If `winner` is an array, the precinct result is treated as a tie and the popup and map styling should reflect all tied winners.
 
 ### Example
 
@@ -131,14 +133,18 @@ Aliases are case-insensitive, and raw hex values are used as provided.
         "P1": {
           "label": "Precinct 1",
           "total": 200,
-          "winner": 0,
-          "results": [120, 80],
-          "percentage": [0.6, 0.4],
+          "winner": [0, 1],
+          "results": [100, 100],
+          "percentage": [0.5, 0.5],
           "registeredVoters": 300,
           "totalVoters": 200
         },
         "P2": {
           "label": "Precinct 2",
+          "total": 150,
+          "winner": 1,
+          "results": [40, 110],
+          "percentage": [0.2666666667, 0.7333333333],
           "registeredVoters": 200,
           "totalVoters": 100
         }

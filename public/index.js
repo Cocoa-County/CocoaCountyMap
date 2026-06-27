@@ -434,19 +434,21 @@ function buildPrecinctLayer(precincts, addData) {
                     if (grouped) precinctsLayer.eachLayer(featureLayer => {
                         if (featureLayer.feature.properties[precinctIDField] == e.target.feature.properties[precinctIDField]) featureLayer.setStyle({
                             weight: 2,
-                            color: getBorderColor(e.target.options.fillColor)
+                            color: getBorderColor(e.target.options)
                         }).bringToFront();
                     });
 
                     e.target.setStyle({
                         weight: 2,
-                        color: getBorderColor(e.target.options.fillColor)
+                        color: getBorderColor(e.target.options)
                     }).bringToFront();
 
                     let content = '';
 
-                    if (grouped) content += `<p class="popup-title">${e.target.feature.properties[precinctIDField]} → ${e.target.feature.properties[precinctLabelField]}<br/></p>`;
-                    else content += `<p class="popup-title">${e.target.feature.properties[precinctLabelField]}<br/></p>`;
+                    let precinctId = e.target.feature.properties[precinctIDField] || 'Unknown Precinct';
+                    let precinctLabel = e.target.feature.properties[precinctLabelField] || precinctId;
+                    if (grouped) content += `<p class="popup-title">${precinctId} → ${precinctLabel}<br/></p>`;
+                    else content += `<p class="popup-title">${precinctLabel}<br/></p>`;
 
                     if (!precinct) content += 'No Election Results';
                     else {
@@ -461,13 +463,32 @@ function buildPrecinctLayer(precincts, addData) {
                             } else if (!precinct.results) {
                                 content += `Hidden for Privacy<br/>Total Votes: ${precinct.total}<br/>`;
                             } else if (window.selector.selection.choice === 'w') {
-                                content += `
-                                <p class="popup-subtitle">${contest.choices[precinct.winner].label}</p>
-                                Votes: ${precinct.results[precinct.winner]}/${precinct.total} (${precinct.percentage ? (100 * precinct.percentage[precinct.winner]).toFixed(0) : 0}%)<br/>
-                                `;
+                                let winningChoiceIndices = normalizeWinnerIndices(precinct.winner);
+                                if (!winningChoiceIndices.length) {
+                                    content += `<p class="popup-subtitle">Winner unavailable</p>`;
+                                } else if (winningChoiceIndices.length === 1) {
+                                    let winningChoiceIndex = winningChoiceIndices[0];
+                                    let winningChoice = contest.choices[winningChoiceIndex];
+                                    let winningLabel = winningChoice ? winningChoice.label : 'Winner unavailable';
+                                    content += `
+                                    <p class="popup-subtitle">${winningLabel}</p>
+                                    Votes: ${precinct.results[winningChoiceIndex]}/${precinct.total} (${precinct.percentage ? (100 * precinct.percentage[winningChoiceIndex]).toFixed(0) : 0}%)<br/>
+                                    `;
+                                } else {
+                                    content += `<p class="popup-subtitle">Tie</p>Tied winners:<br/>`;
+                                    winningChoiceIndices.forEach(winningChoiceIndex => {
+                                        let winningChoice = contest.choices[winningChoiceIndex];
+                                        let winningLabel = winningChoice ? winningChoice.label : 'Winner unavailable';
+                                        content += `
+                                        <p class="popup-subtitle">${winningLabel}</p>
+                                        Votes: ${precinct.results[winningChoiceIndex]}/${precinct.total} (${precinct.percentage ? (100 * precinct.percentage[winningChoiceIndex]).toFixed(0) : 0}%)<br/>
+                                        `;
+                                    });
+                                }
                             } else {
+                                let selectedChoice = choice || {};
                                 content += `
-                                <p class="popup-subtitle">${choice.label}</p>
+                                <p class="popup-subtitle">${selectedChoice.label || 'Choice unavailable'}</p>
                                 Votes: ${precinct.results[window.selector.selection.choice]}/${precinct.total} (${precinct.percentage ? (100 * precinct.percentage[window.selector.selection.choice]).toFixed(0) : 0}%)<br/>
                                 `;
                             }
@@ -514,6 +535,28 @@ function buildPrecinctLayer(precincts, addData) {
             });
         }
     }).addTo(map);
+
+    const attachTieDefsRoot = () => {
+        if (!precinctsLayer || precinctsLayer._tieDefsRoot) return;
+
+        let firstLayer = precinctsLayer.getLayers()[0];
+        let element = firstLayer && firstLayer.getElement && firstLayer.getElement();
+        if (element && element.ownerSVGElement) {
+            precinctsLayer._tieDefsRoot = element.ownerSVGElement;
+
+            if (window.selector && typeof window.selector._syncTiePatternDefs === 'function') {
+                window.selector._syncTiePatternDefs(window.selector._getActiveContest());
+                if (window.selector._layer && typeof window.selector._layer.setStyle === 'function' && typeof window.selector._createStyle === 'function') {
+                    window.selector._layer.setStyle(window.selector._createStyle());
+                }
+            }
+            return;
+        }
+
+        requestAnimationFrame(attachTieDefsRoot);
+    };
+
+    requestAnimationFrame(attachTieDefsRoot);
 }
 
 function buildElectionSelector() {
@@ -524,6 +567,10 @@ function buildElectionSelector() {
 
     if (contests.length) {
         window.selector = L.control.ElectionSelector(pageTitle, precinctsLayer, contests, precinctIDField).addTo(map);
+
+        if (precinctsLayer && precinctsLayer._tieDefsRoot && typeof window.selector._syncTiePatternDefs === 'function') {
+            window.selector._syncTiePatternDefs(window.selector._getActiveContest());
+        }
     }
 }
 
@@ -1348,9 +1395,24 @@ function sortSnapshotsForDisplay(snapshots) {
     });
 }
 
+function normalizeWinnerIndices(winner) {
+    if (Array.isArray(winner)) return winner.filter(index => index !== undefined && index !== null);
+    if (winner === undefined || winner === null) return [];
+    return [winner];
+}
+
 function getBorderColor(input) {
     if (!input) return 'white';
 
-    if (chroma(input).get('hsl.l') < 0.8) return 'white';
-    else return 'black';
+    let color = typeof input === 'string' ? input : input.fillColor;
+    if (Array.isArray(input.tieColors) && input.tieColors.length) color = input.tieColors[0];
+
+    if (!color) return 'white';
+
+    try {
+        if (chroma(color).get('hsl.l') < 0.8) return 'white';
+        else return 'black';
+    } catch (error) {
+        return 'black';
+    }
 }
