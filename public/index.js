@@ -26,6 +26,7 @@ const introDescription = document.getElementById('intro-description');
 const introSnapshotInfo = document.getElementById('intro-snapshot-info');
 const closeIntroBtn = document.getElementById('close-intro');
 const startTourBtn = document.getElementById('start-tour');
+const introAdvancedAction = document.getElementById('intro-advanced-action');
 const openElectionBrowserBtn = document.getElementById('open-election-browser');
 const electionBrowserOverlay = document.getElementById('election-browser-overlay');
 const closeElectionBrowserBtn = document.getElementById('close-election-browser');
@@ -951,6 +952,10 @@ function shouldShowLoadDatasetButtonFromQuery() {
 
 function applyAdvancedModeUiVisibilityFromQuery() {
     const showAdvancedUi = shouldShowLoadDatasetButtonFromQuery();
+
+    if (introAdvancedAction) {
+        introAdvancedAction.hidden = !showAdvancedUi;
+    }
 
     if (openElectionBrowserBtn) {
         openElectionBrowserBtn.hidden = !showAdvancedUi;
