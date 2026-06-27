@@ -28,6 +28,7 @@ L.Control.ElectionSelector = L.Control.extend({
         this._opacity = 100;
         this._closed = false;
         this._pinned = false;
+        this._colorblindMode = 'normal';
         this._layer = layer;
         this._contests = contests;
         this._precinctIDField = precinctIDField;
@@ -178,6 +179,34 @@ L.Control.ElectionSelector = L.Control.extend({
             this._opacity = e.target.value;
             this._layer.setStyle(this._createStyle());
         }, this);
+
+        let visionModeRow = L.DomUtil.create('div', 'election-selector-inline-row', controls);
+        let visionModeLabel = L.DomUtil.create('label', 'election-selector-inline-label', visionModeRow);
+        visionModeLabel.textContent = 'Vision Mode:';
+        visionModeLabel.htmlFor = 'colorblind-mode-selector';
+
+        let visionModeSelector = L.DomUtil.create('select', 'election-selector-inline-select', visionModeRow);
+        visionModeSelector.id = 'colorblind-mode-selector';
+        visionModeSelector.setAttribute('aria-label', 'Select vision mode for colorblind accessibility');
+
+        let modes = [
+            { value: 'normal', label: 'Normal Vision' },
+            { value: 'protanopia', label: 'Protanopia (Red-Green)' },
+            { value: 'deuteranopia', label: 'Deuteranopia (Red-Green)' },
+            { value: 'tritanopia', label: 'Tritanopia (Blue-Yellow)' }
+        ];
+
+        modes.forEach(mode => {
+            let option = L.DomUtil.create('option', 'election-selector-option', visionModeSelector);
+            option.value = mode.value;
+            option.textContent = mode.label;
+        });
+
+        L.DomEvent.on(visionModeSelector, 'change', (e) => {
+            this._colorblindMode = e.target.value;
+            this._syncTiePatternDefs(this._getActiveContest());
+            this._layer.setStyle(this._createStyle());
+        }, this);
     },
 
     _addContests: function(contests) {
@@ -222,6 +251,17 @@ L.Control.ElectionSelector = L.Control.extend({
         this._notifyLegendChanged();
     },
 
+    _transformColorForColorblindMode: function(hexColor) {
+        if (!hexColor || this._colorblindMode === 'normal' || hexColor.startsWith('url(')) {
+            return hexColor;
+        }
+        try {
+            return blinder[this._colorblindMode](hexColor);
+        } catch (e) {
+            return hexColor;
+        }
+    },
+
     _createStyle: function() {
         let selection = this.selection = {
             contest: this._contestSelector.value,
@@ -234,13 +274,18 @@ L.Control.ElectionSelector = L.Control.extend({
             if(precinct.total == 0) return this._buildStyle({fillColor: 'white'});
             if(!precinct.results) return this._buildStyle(this.styleHidden);
             let winnerStyle = this._getWinnerFill(this._contests[selection.contest], precinct.winner);
-            return this._buildStyle(winnerStyle || {fillColor: this._colorClassifier[0]});
+            let style = winnerStyle || {fillColor: this._colorClassifier[0]};
+            if(style.fillColor && !style.fillColor.startsWith('url(')) {
+                style.fillColor = this._transformColorForColorblindMode(style.fillColor);
+            }
+            return this._buildStyle(style);
         };
         if(selection.choice === "t") return feature => {
             let precinct = this._contests[selection.contest].precincts[feature.properties[this._precinctIDField]];
             if(!precinct) return this.styleBlank;
             if(precinct.total == 0) return this._buildStyle({fillColor: 'white'});
-            return this._buildStyle({fillColor: this._colorScale(precinct.total/precinct.registeredVoters/this._contests[selection.contest].voteFor)});
+            let color = this._colorScale(precinct.total/precinct.registeredVoters/this._contests[selection.contest].voteFor);
+            return this._buildStyle({fillColor: this._transformColorForColorblindMode(color)});
         };
         return feature => {
             let precinct = this._contests[selection.contest].precincts[feature.properties[this._precinctIDField]];
@@ -249,7 +294,8 @@ L.Control.ElectionSelector = L.Control.extend({
             if(!precinct.results) return this._buildStyle(this.styleHidden);
             let choiceColor = this._getChoiceColor(this._contests[selection.contest], selection.choice);
             let colorScale = choiceColor ? chroma.scale(['white', choiceColor]) : this._colorScale;
-            return this._buildStyle({fillColor: colorScale(precinct.percentage[selection.choice])});
+            let color = colorScale(precinct.percentage[selection.choice]);
+            return this._buildStyle({fillColor: this._transformColorForColorblindMode(color)});
         };
     },
 
@@ -280,10 +326,11 @@ L.Control.ElectionSelector = L.Control.extend({
         if(!winnerColors.length) return null;
         if(winnerColors.length === 1) return {fillColor: winnerColors[0]};
 
-        let tiePatternUrl = this._getTiePatternUrl(winnerColors);
+        let transformedColors = winnerColors.map(c => this._transformColorForColorblindMode(c));
+        let tiePatternUrl = this._getTiePatternUrl(transformedColors);
         return {
-            fillColor: tiePatternUrl || winnerColors[0],
-            tieColors: winnerColors
+            fillColor: tiePatternUrl || transformedColors[0],
+            tieColors: transformedColors
         };
     },
 
@@ -367,13 +414,14 @@ L.Control.ElectionSelector = L.Control.extend({
             let winnerColors = winnerIndices.map(index => this._getWinnerColor(contest, index)).filter(Boolean);
             if(winnerColors.length < 2) return;
 
-            let patternId = this._getTiePatternId(winnerColors);
+            let transformedColors = winnerColors.map(c => this._transformColorForColorblindMode(c));
+            let patternId = this._getTiePatternId(transformedColors);
             if(seenPatterns.has(patternId) || defs.querySelector(`#${patternId}`)) return;
             seenPatterns.add(patternId);
 
             let pattern = document.createElementNS(namespace, 'pattern');
             let stripeSize = 12;
-            let patternSize = stripeSize * winnerColors.length;
+            let patternSize = stripeSize * transformedColors.length;
 
             pattern.setAttribute('id', patternId);
             pattern.setAttribute('patternUnits', 'userSpaceOnUse');
@@ -382,7 +430,7 @@ L.Control.ElectionSelector = L.Control.extend({
             pattern.setAttribute('patternTransform', 'rotate(45)');
             pattern.setAttribute('patternContentUnits', 'userSpaceOnUse');
 
-            winnerColors.forEach((color, index) => {
+            transformedColors.forEach((color, index) => {
                 let stripe = document.createElementNS(namespace, 'rect');
                 stripe.setAttribute('x', index * stripeSize);
                 stripe.setAttribute('y', 0);

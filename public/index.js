@@ -94,6 +94,41 @@ if (electionBrowserOverlay) {
     });
 }
 
+// Accessibility overlay handlers
+const accessibilityOverlay = document.getElementById('accessibility-overlay');
+const openAccessibilityBtn = document.getElementById('open-accessibility');
+const closeAccessibilityBtn = document.getElementById('close-accessibility');
+
+if (openAccessibilityBtn) {
+    openAccessibilityBtn.addEventListener('click', () => {
+        openAccessibility();
+    });
+}
+
+if (closeAccessibilityBtn) {
+    closeAccessibilityBtn.addEventListener('click', () => {
+        closeAccessibility();
+    });
+}
+
+if (accessibilityOverlay) {
+    accessibilityOverlay.addEventListener('click', event => {
+        if (event.target === accessibilityOverlay) closeAccessibility();
+    });
+}
+
+document.querySelectorAll('input[name="colorblind-mode"]').forEach(radio => {
+    radio.addEventListener('change', (e) => {
+        applyColorblindMode(e.target.value);
+    });
+});
+
+document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && accessibilityOverlay && !accessibilityOverlay.classList.contains('hidden')) {
+        closeAccessibility();
+    }
+});
+
 applyAdvancedModeUiVisibilityFromQuery();
 
 document.addEventListener('keydown', event => {
@@ -610,6 +645,29 @@ function applyDefaultMapView() {
     } else {
         map.setView(defaultMapView.center, defaultMapView.zoom);
     }
+}
+
+function openAccessibility() {
+    if (!accessibilityOverlay) return;
+    accessibilityOverlay.classList.remove('hidden');
+}
+
+function closeAccessibility() {
+    if (!accessibilityOverlay) return;
+    accessibilityOverlay.classList.add('hidden');
+}
+
+function applyColorblindMode(mode) {
+    if (window.selector && window.selector._colorblindMode !== undefined) {
+        window.selector._colorblindMode = mode;
+        if (window.selector._layer && typeof window.selector._layer.setStyle === 'function' && typeof window.selector._createStyle === 'function') {
+            window.selector._layer.setStyle(window.selector._createStyle());
+        }
+    }
+
+    // Sync the vision mode selector in the map control panel if present
+    const panelSelector = document.getElementById('colorblind-mode-selector');
+    if (panelSelector) panelSelector.value = mode;
 }
 
 function openElectionBrowser() {

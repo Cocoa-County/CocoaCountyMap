@@ -58,6 +58,7 @@
                 </div>
                 <div id="intro-advanced-action">
                     <button id="open-election-browser">Choose Election Dataset</button>
+                    <button id="open-accessibility">Accessibility Settings</button>
                 </div>
             </div>
             <div id="intro-links">
@@ -79,6 +80,42 @@
                         </svg>
                     </a>
                 </div>
+            </div>
+        </div>
+    </div>
+    <div id="accessibility-overlay" class="hidden">
+        <div id="accessibility-content">
+            <div id="accessibility-header">
+                <h2 id="accessibility-title">Accessibility Settings</h2>
+                <button id="close-accessibility" aria-label="Close accessibility settings">Close</button>
+            </div>
+            <div id="accessibility-body">
+                <section class="accessibility-section">
+                    <h3>Color Vision Mode</h3>
+                    <p>Adjust map colors to be distinguishable for different types of color blindness.</p>
+                    <div class="accessibility-options">
+                        <label class="accessibility-option">
+                            <input type="radio" name="colorblind-mode" value="normal" checked>
+                            <span class="accessibility-option-label">Normal Vision</span>
+                            <span class="accessibility-option-desc">Default colors</span>
+                        </label>
+                        <label class="accessibility-option">
+                            <input type="radio" name="colorblind-mode" value="protanopia">
+                            <span class="accessibility-option-label">Protanopia <span class="accessibility-option-tag">(Red-Green)</span></span>
+                            <span class="accessibility-option-desc">Reduced sensitivity to red light</span>
+                        </label>
+                        <label class="accessibility-option">
+                            <input type="radio" name="colorblind-mode" value="deuteranopia">
+                            <span class="accessibility-option-label">Deuteranopia <span class="accessibility-option-tag">(Red-Green)</span></span>
+                            <span class="accessibility-option-desc">Reduced sensitivity to green light</span>
+                        </label>
+                        <label class="accessibility-option">
+                            <input type="radio" name="colorblind-mode" value="tritanopia">
+                            <span class="accessibility-option-label">Tritanopia <span class="accessibility-option-tag">(Blue-Yellow)</span></span>
+                            <span class="accessibility-option-desc">Reduced sensitivity to blue light</span>
+                        </label>
+                    </div>
+                </section>
             </div>
         </div>
     </div>
@@ -111,6 +148,7 @@
     </div>
     <div id="map"></div>
     <script src="js/chroma.js"></script>
+    <script src="js/colorblind.js"></script>
     <script src="leaflet/leaflet.js"></script>
     <script src="leaflet-custom-controls.js"></script>
     <script src="index.js"></script>
