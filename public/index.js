@@ -797,6 +797,7 @@ function applyActiveElectionTitle(snapshot) {
     const electionTitle = getElectionDisplayTitle(snapshot);
 
     pageTitle = modalTitle;
+    document.title = modalSubtitle || pageTitle;
 
     if (introTitle) {
         introTitle.textContent = modalTitle;
