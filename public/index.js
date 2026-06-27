@@ -116,6 +116,12 @@ const tourSteps = [
         position: 'right'
     },
     {
+        title: 'Pin Map Controls',
+        description: 'Use the pin button to keep Map Controls open. Click it again to return to normal auto-close behavior.',
+        target: '.election-selector-pin-btn',
+        position: 'right'
+    },
+    {
         title: 'Select a Contest',
         description: 'Use this dropdown to switch between available contest views for the active dataset.',
         target: '.election-selector-select:first-of-type',
@@ -131,6 +137,18 @@ const tourSteps = [
         title: 'Adjust Opacity',
         description: 'Use this slider to adjust the map overlay transparency, making it easier to see underlying geographic features.',
         target: '.election-selector-slider',
+        position: 'right'
+    },
+    {
+        title: 'Legend Panel',
+        description: 'Use this button to open the Legend panel and see the meaning of map colors for the current view.',
+        target: '.legend-control',
+        position: 'right'
+    },
+    {
+        title: 'Pin Legend',
+        description: 'Use the Legend pin button to keep the panel open while exploring the map.',
+        target: '.legend-control-pin-btn',
         position: 'right'
     }
 ];
@@ -160,7 +178,10 @@ function endTour() {
 
     // Close the control panel
     if (window.selector) {
-        window.selector._close();
+        window.selector._close(true);
+    }
+    if (window.legend) {
+        window.legend._close(true);
     }
 }
 
@@ -176,14 +197,21 @@ function showTourStep(stepIndex) {
     if (step.target) {
         const targetElement = document.querySelector(step.target);
         if (targetElement) {
-            // Expand the control panel if targeting its children
-            const controlPanel = document.querySelector('.election-selector');
+            // Expand the parent control panel if targeting one of its children.
+            const controlPanel = targetElement.closest('.election-selector, .legend-control');
             if (controlPanel && controlPanel.classList.contains('closed')) {
-                controlPanel.classList.remove('closed');
+                if (controlPanel.classList.contains('election-selector') && window.selector) {
+                    window.selector._open();
+                } else if (controlPanel.classList.contains('legend-control') && window.legend) {
+                    window.legend._open();
+                } else {
+                    controlPanel.classList.remove('closed');
+                }
             }
 
             const rect = targetElement.getBoundingClientRect();
-            tourSpotlight.style.top = `${rect.top - 5}px`;
+            const pinTargetOffset = targetElement.classList.contains('map-panel-pin-btn') ? 4 : 0;
+            tourSpotlight.style.top = `${rect.top - 5 - pinTargetOffset}px`;
             tourSpotlight.style.left = `${rect.left - 5}px`;
             tourSpotlight.style.width = `${rect.width + 10}px`;
             tourSpotlight.style.height = `${rect.height + 10}px`;
@@ -198,7 +226,7 @@ function showTourStep(stepIndex) {
                 tourContent.style.bottom = '20px';
                 tourContent.style.transform = 'translateX(-50%)';
             } else {
-                // Steps 2-5: top of screen
+                // Steps with targets: top of screen
                 tourContent.style.top = '20px';
                 tourContent.style.bottom = 'auto';
                 tourContent.style.transform = 'translateX(-50%)';
@@ -214,7 +242,7 @@ function showTourStep(stepIndex) {
             tourContent.style.bottom = '20px';
             tourContent.style.transform = 'translateX(-50%)';
         } else {
-            // Steps 2-5: top of screen
+            // Steps with targets: top of screen
             tourContent.style.top = '20px';
             tourContent.style.bottom = 'auto';
             tourContent.style.transform = 'translateX(-50%)';
@@ -225,11 +253,6 @@ function showTourStep(stepIndex) {
 if (tourPrevBtn) {
     tourPrevBtn.addEventListener('click', () => {
         if (currentTourStep > 0) {
-            // Close control panel if we're on step 2 and going back to step 1
-            if (currentTourStep === 1 && window.selector) {
-                window.selector._container.classList.add('closed');
-                window.selector._closed = true;
-            }
             currentTourStep--;
             showTourStep(currentTourStep);
         }
@@ -564,9 +587,15 @@ function buildElectionSelector() {
         map.removeControl(window.selector);
         window.selector = null;
     }
+    if (window.legend) {
+        map.removeControl(window.legend);
+        window.legend = null;
+    }
 
     if (contests.length) {
         window.selector = L.control.ElectionSelector(pageTitle, precinctsLayer, contests, precinctIDField).addTo(map);
+        window.legend = L.control.LegendPanel(window.selector).addTo(map);
+        window.selector.setLegendControl(window.legend);
 
         if (precinctsLayer && precinctsLayer._tieDefsRoot && typeof window.selector._syncTiePatternDefs === 'function') {
             window.selector._syncTiePatternDefs(window.selector._getActiveContest());

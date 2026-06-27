@@ -1,3 +1,21 @@
+function createPinButton(buttonClass) {
+    let button = L.DomUtil.create('button', `map-panel-pin-btn ${buttonClass}`);
+    button.type = 'button';
+    button.title = 'Pin panel open';
+    button.setAttribute('aria-label', 'Pin panel open');
+    button.setAttribute('aria-pressed', 'false');
+    button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M16 2H8v1l1 1v5l-2 2v1h5v9h1v-9h5v-1l-2-2V4l1-1V2z"></path></svg>';
+    return button;
+}
+
+function setPinButtonState(button, pinned) {
+    if(!button) return;
+    button.classList.toggle('pinned', pinned);
+    button.title = pinned ? 'Unpin panel' : 'Pin panel open';
+    button.setAttribute('aria-label', pinned ? 'Unpin panel' : 'Pin panel open');
+    button.setAttribute('aria-pressed', pinned ? 'true' : 'false');
+}
+
 L.Control.ElectionSelector = L.Control.extend({
     options: {
         position: 'bottomleft',
@@ -9,10 +27,12 @@ L.Control.ElectionSelector = L.Control.extend({
 
         this._opacity = 100;
         this._closed = false;
+        this._pinned = false;
         this._layer = layer;
         this._contests = contests;
         this._precinctIDField = precinctIDField;
         this._tieDefsContainer = null;
+        this._legendControl = null;
 
         this._colorScale = chroma.scale(['white', '08306b']);
         this._colorClassifier = ['#1f78b4','#e31a1c','#33a02c','#ff7f00','#6a3d9a','#ffff99','#b15928','#a6cee3','#fb9a99','#b2df8a','#fdbf6f','#cab2d6'];
@@ -68,7 +88,7 @@ L.Control.ElectionSelector = L.Control.extend({
         };
     },
     onAdd: function(map) {
-        let container = this._container = L.DomUtil.create('div', 'election-selector leaflet-bar');
+        let container = this._container = L.DomUtil.create('div', 'election-selector map-panel-control leaflet-bar');
 
         let drawer = this._drawer = L.DomUtil.create('div', 'election-selector-drawer leaflet-bar', container);
         this._addTitle();
@@ -111,6 +131,7 @@ L.Control.ElectionSelector = L.Control.extend({
         }, this);
 
         this._close();
+        this._notifyLegendChanged();
 
         return container;
     },
@@ -120,9 +141,15 @@ L.Control.ElectionSelector = L.Control.extend({
     },
 
     _addTitle: function(){
+        let pinButton = this._pinButton = createPinButton('election-selector-pin-btn');
+        L.DomEvent.on(pinButton, 'click', (e) => {
+            L.DomEvent.stopPropagation(e);
+            this._togglePin();
+        }, this);
         let div = L.DomUtil.create('div', 'election-selector-credits', this._drawer);
-
-        div.innerHTML = `<p><b>Map Controls</b></p>`;
+        setPinButtonState(this._pinButton, this._pinned);
+        div.innerHTML = '<p><b>Map Controls</b></p>';
+        div.appendChild(pinButton);
 
         // Add help button
         let helpButton = L.DomUtil.create('button', 'election-selector-help-btn', div);
@@ -182,6 +209,7 @@ L.Control.ElectionSelector = L.Control.extend({
         this._addChoices(this._contests[this._contestSelector.value].choices);
         this._syncTiePatternDefs(this._getActiveContest());
         this._layer.setStyle(this._createStyle());
+        this._notifyLegendChanged();
         this._layer._map.flyToBounds(this._layer.getLayers().reduce((bounds, feature) => {
             if(this._contests[this.selection.contest].precincts[feature.feature.properties[this._precinctIDField]]) bounds.push(feature.getBounds());
             return bounds;
@@ -191,6 +219,7 @@ L.Control.ElectionSelector = L.Control.extend({
     _choiceChanged: function() {
         this._layer._map.closePopup();
         this._layer.setStyle(this._createStyle());
+        this._notifyLegendChanged();
     },
 
     _createStyle: function() {
@@ -407,8 +436,35 @@ L.Control.ElectionSelector = L.Control.extend({
     styleBlank:  {fillOpacity: 0},
     styleHidden: {fillColor: 'lightgray'},
 
-    _close: function(){
-        if(window.tourActive) return;
+    setLegendControl: function(legendControl) {
+        this._legendControl = legendControl || null;
+        this._notifyLegendChanged();
+    },
+
+    _getLegendState: function() {
+        let contestIndex = this._contestSelector ? this._contestSelector.value : this.selection.contest;
+        let choiceValue = this._choiceSelector ? this._choiceSelector.value : this.selection.choice;
+        let contest = this._contests && contestIndex !== undefined ? this._contests[contestIndex] : null;
+        return {
+            contestIndex: contestIndex,
+            contest: contest || null,
+            choice: choiceValue
+        };
+    },
+
+    _notifyLegendChanged: function() {
+        if(this._legendControl && typeof this._legendControl.updateFromSelector === 'function') {
+            this._legendControl.updateFromSelector(this._getLegendState());
+        }
+    },
+
+    _togglePin: function() {
+        this._pinned = !this._pinned;
+        setPinButtonState(this._pinButton, this._pinned);
+    },
+
+    _close: function(force){
+        if((window.tourActive || this._pinned) && !force) return;
         this._container.classList.add("closed");
         this._closed = true;
     },
@@ -421,4 +477,178 @@ L.Control.ElectionSelector = L.Control.extend({
 
 L.control.ElectionSelector = function(title, layer, contests, precinctIDField, options) {
     return new L.Control.ElectionSelector(title, layer, contests, precinctIDField, options);
-}
+};
+
+L.Control.LegendPanel = L.Control.extend({
+    options: {
+        position: 'bottomleft',
+    },
+
+    initialize: function(selector, options) {
+        this._selector = selector;
+        this._closed = false;
+        this._pinned = false;
+        this._legendState = null;
+        this._fallbackColors = ['#1f78b4','#e31a1c','#33a02c','#ff7f00','#6a3d9a','#ffff99','#b15928','#a6cee3','#fb9a99','#b2df8a','#fdbf6f','#cab2d6'];
+    },
+
+    onAdd: function(map) {
+        let container = this._container = L.DomUtil.create('div', 'legend-control map-panel-control leaflet-bar');
+        let drawer = this._drawer = L.DomUtil.create('div', 'legend-control-drawer leaflet-bar', container);
+
+        this._addTitle();
+        this._legendBody = L.DomUtil.create('div', 'legend-control-body', drawer);
+
+        L.DomEvent.disableClickPropagation(container);
+        L.DomEvent.disableScrollPropagation(container);
+
+        L.DomEvent.on(container, {
+            mouseenter: function () {
+                L.DomEvent.on(container, 'mousedown', L.DomEvent.preventDefault);
+                this._open();
+                setTimeout(function () {
+                    L.DomEvent.off(container, 'mousedown', L.DomEvent.preventDefault);
+                });
+            },
+            mousedown: function () {
+                L.DomEvent.on(container, 'mousedown', L.DomEvent.preventDefault);
+                this._open();
+                setTimeout(function () {
+                    L.DomEvent.off(container, 'mousedown', L.DomEvent.preventDefault);
+                });
+            },
+            mouseleave: function (e) {
+                if(e.relatedTarget === null || container.contains(e.relatedTarget)) e.stopPropagation();
+                else this._close();
+            }
+        }, this);
+
+        this._close();
+        this._renderLegend();
+
+        return container;
+    },
+
+    _addTitle: function() {
+        let pinButton = this._pinButton = createPinButton('legend-control-pin-btn');
+        L.DomEvent.on(pinButton, 'click', (e) => {
+            L.DomEvent.stopPropagation(e);
+            this._togglePin();
+        }, this);
+        let div = L.DomUtil.create('div', 'legend-control-credits', this._drawer);
+        setPinButtonState(this._pinButton, this._pinned);
+        div.innerHTML = '<p><b>Legend</b></p>';
+        div.appendChild(pinButton);
+    },
+
+    updateFromSelector: function(legendState) {
+        this._legendState = legendState || null;
+        this._renderLegend();
+    },
+
+    _appendEmptyLegend: function(message) {
+        let note = L.DomUtil.create('p', 'legend-empty-note', this._legendBody);
+        note.textContent = message;
+    },
+
+    _appendSwatchItem: function(label, color) {
+        let row = L.DomUtil.create('div', 'legend-item', this._legendBody);
+        let text = L.DomUtil.create('span', 'legend-item-label', row);
+        text.textContent = label;
+        let swatch = L.DomUtil.create('span', 'legend-swatch', row);
+        swatch.style.backgroundColor = color;
+    },
+
+    _appendGradient: function(title, endColor, minLabel, maxLabel) {
+        let block = L.DomUtil.create('div', 'legend-gradient-block', this._legendBody);
+        let heading = L.DomUtil.create('p', 'legend-gradient-title', block);
+        heading.textContent = title;
+        let gradient = L.DomUtil.create('div', 'legend-gradient', block);
+        gradient.style.background = `linear-gradient(to right, #ffffff 0%, ${endColor} 100%)`;
+        let labels = L.DomUtil.create('div', 'legend-gradient-labels', block);
+        let min = L.DomUtil.create('span', 'legend-gradient-label', labels);
+        min.textContent = minLabel;
+        let max = L.DomUtil.create('span', 'legend-gradient-label', labels);
+        max.textContent = maxLabel;
+    },
+
+    _getWinnerColor: function(contest, index) {
+        if(this._selector && typeof this._selector._getWinnerColor === 'function') {
+            return this._selector._getWinnerColor(contest, index);
+        }
+        return this._fallbackColors[index % this._fallbackColors.length];
+    },
+
+    _getChoiceColor: function(contest, index) {
+        if(this._selector && typeof this._selector._getChoiceColor === 'function') {
+            return this._selector._getChoiceColor(contest, index);
+        }
+        return null;
+    },
+
+    _renderLegend: function() {
+        if(!this._legendBody) return;
+        L.DomUtil.empty(this._legendBody);
+
+        if(!this._legendState || !this._legendState.contest) {
+            this._appendEmptyLegend('Load election data to see legend details.');
+            return;
+        }
+
+        let contest = this._legendState.contest;
+        let choice = this._legendState.choice;
+        let contestLabel = L.DomUtil.create('p', 'legend-contest-label', this._legendBody);
+        contestLabel.textContent = contest.label || 'Selected contest';
+
+        if(choice === 'w') {
+            let title = L.DomUtil.create('p', 'legend-mode-label', this._legendBody);
+            title.textContent = 'Winner by Precinct';
+            if(!contest.choices || !contest.choices.length) {
+                this._appendEmptyLegend('No choices available for this contest.');
+                return;
+            }
+
+            contest.choices.forEach((candidate, index) => {
+                this._appendSwatchItem(candidate.label || `Choice ${index + 1}`, this._getWinnerColor(contest, index));
+            });
+            return;
+        }
+
+        if(choice === 't') {
+            let turnoutTitle = `Contest turnout${contest.voteFor > 1 ? ` (Vote For ${contest.voteFor})` : ''}`;
+            this._appendGradient(turnoutTitle, '#08306b', '0%', '100%');
+            return;
+        }
+
+        let numericChoice = Number.parseInt(choice, 10);
+        if(Number.isNaN(numericChoice) || !contest.choices || !contest.choices[numericChoice]) {
+            this._appendEmptyLegend('Select a valid view mode to display legend information.');
+            return;
+        }
+
+        let selectedChoice = contest.choices[numericChoice];
+        let choiceLabel = selectedChoice.label || `Choice ${numericChoice + 1}`;
+        let endColor = this._getChoiceColor(contest, numericChoice) || '#08306b';
+        this._appendGradient(`${choiceLabel} vote share`, endColor, '0%', '100%');
+    },
+
+    _togglePin: function() {
+        this._pinned = !this._pinned;
+        setPinButtonState(this._pinButton, this._pinned);
+    },
+
+    _close: function(force) {
+        if((window.tourActive || this._pinned) && !force) return;
+        this._container.classList.add('closed');
+        this._closed = true;
+    },
+
+    _open: function() {
+        this._container.classList.remove('closed');
+        this._closed = false;
+    }
+});
+
+L.control.LegendPanel = function(selector, options) {
+    return new L.Control.LegendPanel(selector, options);
+};
