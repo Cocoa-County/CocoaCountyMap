@@ -191,6 +191,7 @@ L.Control.ElectionSelector = L.Control.extend({
 
         let modes = [
             { value: 'normal', label: 'Normal Vision' },
+            { value: 'highContrast', label: 'High Contrast' },
             { value: 'protanopia', label: 'Protanopia (Red-Green)' },
             { value: 'deuteranopia', label: 'Deuteranopia (Red-Green)' },
             { value: 'tritanopia', label: 'Tritanopia (Blue-Yellow)' }
@@ -206,6 +207,7 @@ L.Control.ElectionSelector = L.Control.extend({
             this._colorblindMode = e.target.value;
             this._syncTiePatternDefs(this._getActiveContest());
             this._layer.setStyle(this._createStyle());
+            this._notifyLegendChanged();
         }, this);
     },
 
@@ -634,6 +636,13 @@ L.Control.LegendPanel = L.Control.extend({
         return null;
     },
 
+    _transformColor: function(color) {
+        if(this._selector && typeof this._selector._transformColorForColorblindMode === 'function') {
+            return this._selector._transformColorForColorblindMode(color);
+        }
+        return color;
+    },
+
     _renderLegend: function() {
         if(!this._legendBody) return;
         L.DomUtil.empty(this._legendBody);
@@ -657,14 +666,14 @@ L.Control.LegendPanel = L.Control.extend({
             }
 
             contest.choices.forEach((candidate, index) => {
-                this._appendSwatchItem(candidate.label || `Choice ${index + 1}`, this._getWinnerColor(contest, index));
+                this._appendSwatchItem(candidate.label || `Choice ${index + 1}`, this._transformColor(this._getWinnerColor(contest, index)));
             });
             return;
         }
 
         if(choice === 't') {
             let turnoutTitle = `Contest turnout${contest.voteFor > 1 ? ` (Vote For ${contest.voteFor})` : ''}`;
-            this._appendGradient(turnoutTitle, '#08306b', '0%', '100%');
+            this._appendGradient(turnoutTitle, this._transformColor('#08306b'), '0%', '100%');
             return;
         }
 
@@ -677,7 +686,7 @@ L.Control.LegendPanel = L.Control.extend({
         let selectedChoice = contest.choices[numericChoice];
         let choiceLabel = selectedChoice.label || `Choice ${numericChoice + 1}`;
         let endColor = this._getChoiceColor(contest, numericChoice) || '#08306b';
-        this._appendGradient(`${choiceLabel} vote share`, endColor, '0%', '100%');
+        this._appendGradient(`${choiceLabel} vote share`, this._transformColor(endColor), '0%', '100%');
     },
 
     _togglePin: function() {

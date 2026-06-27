@@ -182,7 +182,24 @@
         tritanomaly:   makeBlinder('tritan', true),
         tritanopia:    makeBlinder('tritan', false),
         achromatomaly: makeBlinder('achroma', true),
-        achromatopsia: makeBlinder('achroma', false)
+        achromatopsia: makeBlinder('achroma', false),
+        highContrast: function (colorString) {
+            try {
+                if (typeof chroma === 'undefined') return colorString;
+                var c   = chroma(colorString);
+                var hsl = c.hsl();
+                var h   = isNaN(hsl[0]) ? 0 : hsl[0];
+                var s   = hsl[1] || 0;
+                var l   = hsl[2] || 0;
+                // Boost saturation
+                s = Math.min(1, s + 0.4);
+                // Push lightness toward extremes
+                l = l < 0.5 ? Math.max(0.1, l - 0.15) : Math.min(0.95, l + 0.1);
+                return chroma.hsl(h, s, l).hex();
+            } catch (e) {
+                return colorString;
+            }
+        }
     };
 
 }(window));
