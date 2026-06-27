@@ -1,4 +1,4 @@
-const defaultAppTitle = 'Election Map Boilerplate';
+const defaultAppTitle = 'Contra Costa Elections Map';
 const defaultIntroSubtitle = 'Interactive Election Results';
 const defaultIntroDescription = 'This interactive map displays precinct-level voting results using your configured election data repository.';
 let pageTitle = defaultAppTitle;
