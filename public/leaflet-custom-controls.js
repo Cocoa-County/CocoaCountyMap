@@ -37,6 +37,10 @@ L.Control.ElectionSelector = L.Control.extend({
 
         this._colorScale = chroma.scale(['white', '08306b']);
         this._colorClassifier = ['#1f78b4','#e31a1c','#33a02c','#ff7f00','#6a3d9a','#ffff99','#b15928','#a6cee3','#fb9a99','#b2df8a','#fdbf6f','#cab2d6'];
+        // Okabe-Ito palette: distinguishable under all common types of color blindness
+        this._colorblindSafePalette = ['#0072B2','#D55E00','#009E73','#E69F00','#CC79A7','#56B4E9','#F0E442','#999999'];
+        // IBM Carbon high-contrast palette
+        this._highContrastPalette = ['#0F62FE','#D02670','#009D9A','#8A3FFC','#DA1E28','#FF832B','#198038','#F1C21B'];
         this._namedChoiceColors = {
             red1: '#e31a1c',
             red2: '#fb9a99',
@@ -190,11 +194,9 @@ L.Control.ElectionSelector = L.Control.extend({
         visionModeSelector.setAttribute('aria-label', 'Select vision mode for colorblind accessibility');
 
         let modes = [
-            { value: 'normal', label: 'Normal Vision' },
+            { value: 'normal', label: 'Default Colors' },
             { value: 'highContrast', label: 'High Contrast' },
-            { value: 'protanopia', label: 'Protanopia (Red-Green)' },
-            { value: 'deuteranopia', label: 'Deuteranopia (Red-Green)' },
-            { value: 'tritanopia', label: 'Tritanopia (Blue-Yellow)' }
+            { value: 'colorblind', label: 'Colorblind-Safe' }
         ];
 
         modes.forEach(mode => {
@@ -254,14 +256,41 @@ L.Control.ElectionSelector = L.Control.extend({
     },
 
     _transformColorForColorblindMode: function(hexColor) {
-        if (!hexColor || this._colorblindMode === 'normal' || hexColor.startsWith('url(')) {
+        if (!hexColor || this._colorblindMode === 'normal' || this._colorblindMode === 'colorblind' || this._colorblindMode === 'highContrast' || hexColor.startsWith('url(')) {
             return hexColor;
         }
-        try {
-            return blinder[this._colorblindMode](hexColor);
-        } catch (e) {
-            return hexColor;
-        }
+        return hexColor;
+    },
+
+    // Returns the Okabe-Ito palette color for a given choice index, guaranteeing uniqueness.
+    _getSafeColorByIndex: function(index) {
+        return this._colorblindSafePalette[index % this._colorblindSafePalette.length];
+    },
+
+    // Returns the IBM Carbon high-contrast palette color for a given choice index.
+    _getHighContrastColorByIndex: function(index) {
+        return this._highContrastPalette[index % this._highContrastPalette.length];
+    },
+
+    // Returns the gradient scale endpoint for the turnout view.
+    _getTurnoutEndColor: function() {
+        if (this._colorblindMode === 'highContrast') return '#0F62FE';
+        if (this._colorblindMode === 'colorblind') return '#0072B2';
+        return '#08306b';
+    },
+
+    // Returns the gradient scale endpoint for a specific choice, safe for the active mode.
+    _getChoiceScaleEndColor: function(contest, index) {
+        if (this._colorblindMode === 'colorblind') return this._getSafeColorByIndex(parseInt(index));
+        if (this._colorblindMode === 'highContrast') return this._getHighContrastColorByIndex(parseInt(index));
+        return this._getChoiceColor(contest, index) || null;
+    },
+
+    // Returns the correct sequential scale for the active mode.
+    _getActiveColorScale: function() {
+        if (this._colorblindMode === 'highContrast') return chroma.scale(['white', '#0F62FE']);
+        if (this._colorblindMode === 'colorblind') return chroma.scale(['white', '#0072B2']);
+        return this._colorScale;
     },
 
     _createStyle: function() {
@@ -276,28 +305,26 @@ L.Control.ElectionSelector = L.Control.extend({
             if(precinct.total == 0) return this._buildStyle({fillColor: 'white'});
             if(!precinct.results) return this._buildStyle(this.styleHidden);
             let winnerStyle = this._getWinnerFill(this._contests[selection.contest], precinct.winner);
-            let style = winnerStyle || {fillColor: this._colorClassifier[0]};
-            if(style.fillColor && !style.fillColor.startsWith('url(')) {
-                style.fillColor = this._transformColorForColorblindMode(style.fillColor);
-            }
+            let fallbackColor = this._colorblindMode === 'colorblind' ? this._getSafeColorByIndex(0)
+                : this._colorblindMode === 'highContrast' ? this._getHighContrastColorByIndex(0)
+                : this._colorClassifier[0];
+            let style = winnerStyle || {fillColor: fallbackColor};
             return this._buildStyle(style);
         };
         if(selection.choice === "t") return feature => {
             let precinct = this._contests[selection.contest].precincts[feature.properties[this._precinctIDField]];
             if(!precinct) return this.styleBlank;
             if(precinct.total == 0) return this._buildStyle({fillColor: 'white'});
-            let color = this._colorScale(precinct.total/precinct.registeredVoters/this._contests[selection.contest].voteFor);
-            return this._buildStyle({fillColor: this._transformColorForColorblindMode(color)});
+            return this._buildStyle({fillColor: this._getActiveColorScale()(precinct.total/precinct.registeredVoters/this._contests[selection.contest].voteFor)});
         };
         return feature => {
             let precinct = this._contests[selection.contest].precincts[feature.properties[this._precinctIDField]];
             if(!precinct) return this.styleBlank;
             if(precinct.total == 0) return this._buildStyle({fillColor: 'white'});
             if(!precinct.results) return this._buildStyle(this.styleHidden);
-            let choiceColor = this._getChoiceColor(this._contests[selection.contest], selection.choice);
-            let colorScale = choiceColor ? chroma.scale(['white', choiceColor]) : this._colorScale;
-            let color = colorScale(precinct.percentage[selection.choice]);
-            return this._buildStyle({fillColor: this._transformColorForColorblindMode(color)});
+            let endColor = this._getChoiceScaleEndColor(this._contests[selection.contest], selection.choice);
+            let colorScale = endColor ? chroma.scale(['white', endColor]) : this._getActiveColorScale();
+            return this._buildStyle({fillColor: colorScale(precinct.percentage[selection.choice])});
         };
     },
 
@@ -317,6 +344,8 @@ L.Control.ElectionSelector = L.Control.extend({
     },
 
     _getWinnerColor: function(contest, index) {
+        if (this._colorblindMode === 'colorblind') return this._getSafeColorByIndex(index);
+        if (this._colorblindMode === 'highContrast') return this._getHighContrastColorByIndex(index);
         return this._getChoiceColor(contest, index) || this._colorClassifier[index % this._colorClassifier.length];
     },
 
@@ -673,7 +702,8 @@ L.Control.LegendPanel = L.Control.extend({
 
         if(choice === 't') {
             let turnoutTitle = `Contest turnout${contest.voteFor > 1 ? ` (Vote For ${contest.voteFor})` : ''}`;
-            this._appendGradient(turnoutTitle, this._transformColor('#08306b'), '0%', '100%');
+            let turnoutEnd = (this._selector && this._selector._getTurnoutEndColor) ? this._selector._getTurnoutEndColor() : '#08306b';
+            this._appendGradient(turnoutTitle, turnoutEnd, '0%', '100%');
             return;
         }
 
@@ -685,8 +715,8 @@ L.Control.LegendPanel = L.Control.extend({
 
         let selectedChoice = contest.choices[numericChoice];
         let choiceLabel = selectedChoice.label || `Choice ${numericChoice + 1}`;
-        let endColor = this._getChoiceColor(contest, numericChoice) || '#08306b';
-        this._appendGradient(`${choiceLabel} vote share`, this._transformColor(endColor), '0%', '100%');
+        let endColor = (this._selector && this._selector._getChoiceScaleEndColor) ? (this._selector._getChoiceScaleEndColor(contest, numericChoice) || '#08306b') : (this._getChoiceColor(contest, numericChoice) || '#08306b');
+        this._appendGradient(`${choiceLabel} vote share`, endColor, '0%', '100%');
     },
 
     _togglePin: function() {

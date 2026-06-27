@@ -176,6 +176,12 @@ const tourSteps = [
         position: 'right'
     },
     {
+        title: 'Vision Mode',
+        description: 'Use this selector to adjust map colors for accessibility, including High Contrast and Colorblind-Safe modes.',
+        target: '.election-selector-inline-row',
+        position: 'right'
+    },
+    {
         title: 'Legend Panel',
         description: 'Use this button to open the Legend panel and see the meaning of map colors for the current view.',
         target: '.legend-control',
