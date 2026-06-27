@@ -35,8 +35,63 @@ For setup and configuration, see [README.md](README.md).
 | id                  | Stable choice identifier          | Integer or String |
 | label               | Choice display name               | String            |
 | party (optional)    | Party label                       | String            |
-| color (optional)    | Color value used by UI            | String            |
+| color (optional)    | CSS hex color or named palette alias used by UI | String |
 | votes               | Total votes for the choice        | Integer           |
+
+Supported named color aliases include:
+
+Aliases are case-insensitive, and raw hex values are used as provided.
+
+| Alias   | Hex value |
+|---------|-----------|
+| red1    | #e31a1c   |
+| red2    | #fb9a99   |
+| red3    | #fb6a4a   |
+| red4    | #cb181d   |
+| blue1   | #1f78b4   |
+| blue2   | #a6cee3   |
+| blue3   | #6baed6   |
+| blue4   | #08519c   |
+| green1  | #33a02c   |
+| green2  | #b2df8a   |
+| green3  | #74c476   |
+| green4  | #238b45   |
+| orange1 | #ff7f00   |
+| orange2 | #fdbf6f   |
+| orange3 | #fd8d3c   |
+| orange4 | #d94801   |
+| purple1 | #6a3d9a   |
+| purple2 | #cab2d6   |
+| purple3 | #9e9ac8   |
+| purple4 | #54278f   |
+| yellow1 | #ffff99   |
+| yellow2 | #fed976   |
+| yellow3 | #fdd49e   |
+| yellow4 | #bdb76b   |
+| brown1  | #b15928   |
+| brown2  | #d95f0e   |
+| brown3  | #8c510a   |
+| brown4  | #a6761d   |
+| pink1   | #f781bf   |
+| pink2   | #fcc5c0   |
+| pink3   | #dd1c77   |
+| pink4   | #c51b8a   |
+| teal1   | #1b9e77   |
+| teal2   | #66c2a5   |
+| teal3   | #2ca25f   |
+| teal4   | #006d2c   |
+| cyan1   | #17a2b8   |
+| cyan2   | #9edae5   |
+| cyan3   | #31a354   |
+| cyan4   | #3182bd   |
+| gray1   | #969696   |
+| gray2   | #bdbdbd   |
+| gray3   | #737373   |
+| gray4   | #525252   |
+| gold1   | #ffd700   |
+| gold2   | #e6ab02   |
+| gold3   | #fec44f   |
+| gold4   | #b8860b   |
 | **Precinct object** |                                   |                   |
 | label               | Precinct display label            | String            |
 | total (optional)    | Total votes in this contest       | Integer           |
@@ -61,13 +116,14 @@ For setup and configuration, see [README.md](README.md).
           "id": 100,
           "label": "John Doe",
           "party": "Democrat",
-          "color": "#1f78b4",
+          "color": "blue1",
           "votes": 1500
         },
         {
           "index": 1,
           "id": 101,
           "label": "Jane Smith",
+          "color": "purple2",
           "votes": 1000
         }
       ],
