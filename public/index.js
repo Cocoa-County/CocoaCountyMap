@@ -1092,13 +1092,33 @@ function setSelectionQueryParams(snapshot, options = {}) {
     window.history.replaceState({}, '', url);
 }
 
+function getJsonCacheBustToken() {
+    if (!window.__jsonCacheBustToken) {
+        window.__jsonCacheBustToken = Date.now().toString();
+    }
+
+    return window.__jsonCacheBustToken;
+}
+
+function withCacheBust(url) {
+    if (!url) return url;
+
+    try {
+        const resolved = new URL(url, window.location.href);
+        resolved.searchParams.set('_cb', getJsonCacheBustToken());
+        return resolved.toString();
+    } catch {
+        return url;
+    }
+}
+
 async function loadJson(file) {
-    let response = await fetch(file);
+    let response = await fetch(withCacheBust(file));
     return await response.json();
 }
 
 async function loadJsonWithSource(file) {
-    let response = await fetch(file);
+    let response = await fetch(withCacheBust(file));
     return {
         data: await response.json(),
         sourceUrl: response.url || new URL(file, window.location.href).toString()
