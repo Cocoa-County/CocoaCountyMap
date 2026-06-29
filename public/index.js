@@ -7,8 +7,7 @@ let precinctLabelField = 'PrecinctNM';
 let grouped = false;
 const additionalGISData = false;
 const electionsIndexFiles = [
-    'https://raw.githubusercontent.com/Cocoa-County/ElectionOpenDataRepository/main/elections.index.json',
-    'https://raw.githubusercontent.com/Cocoa-County/ElectionOpenDataRepository/main/snapshots.index.json'
+    'https://cocoa-county.github.io/ElectionOpenDataRepository/elections.index.json',
 ];
 const defaultMapView = {
     center: [39.8283, -98.5795],
