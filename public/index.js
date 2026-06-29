@@ -852,6 +852,16 @@ function getPendingSnapshot() {
     return window.availableElections.find(snapshot => snapshot.id === pendingSnapshotId || snapshot.snapshotId === pendingSnapshotId) || null;
 }
 
+function trackDynamicTitlePageView() {
+    if (typeof window.gtag !== 'function') return;
+
+    window.gtag('event', 'page_view', {
+        page_title: document.title,
+        page_location: window.location.href,
+        page_path: `${window.location.pathname}${window.location.search}${window.location.hash}`
+    });
+}
+
 function applyActiveElectionTitle(snapshot) {
     const electionRecord = getElectionRecordForSnapshot(snapshot);
     const modalTitle = getIntroModalTitle(snapshot, electionRecord) || defaultAppTitle;
@@ -861,6 +871,7 @@ function applyActiveElectionTitle(snapshot) {
 
     pageTitle = modalTitle;
     document.title = modalSubtitle || pageTitle;
+    trackDynamicTitlePageView();
 
     if (introTitle) {
         introTitle.textContent = modalTitle;
