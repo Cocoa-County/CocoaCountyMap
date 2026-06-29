@@ -50,6 +50,40 @@ let hasAutoExpandedActiveGroup = false;
 
 window.availableElections = [];
 
+function sanitizeAnalyticsParams(params = {}) {
+    let cleanParams = {};
+
+    Object.entries(params).forEach(([key, value]) => {
+        if (value === undefined || value === null || value === '') return;
+        if (typeof value === 'number' && !Number.isFinite(value)) return;
+        cleanParams[key] = value;
+    });
+
+    return cleanParams;
+}
+
+function getActiveSnapshot() {
+    if (!activeSnapshotId || !Array.isArray(window.availableElections)) return null;
+    return window.availableElections.find(snapshot => snapshot.id === activeSnapshotId || snapshot.snapshotId === activeSnapshotId) || null;
+}
+
+function trackMapEvent(eventName, params = {}) {
+    if (typeof window.gtag !== 'function') return;
+
+    const activeSnapshot = getActiveSnapshot();
+    const eventParams = sanitizeAnalyticsParams({
+        page_title: document.title,
+        page_path: `${window.location.pathname}${window.location.search}${window.location.hash}`,
+        snapshot_id: activeSnapshot?.id || activeSnapshot?.snapshotId,
+        election_group_id: activeSnapshot?.electionGroupId,
+        ...params
+    });
+
+    window.gtag('event', eventName, eventParams);
+}
+
+window.trackMapEvent = trackMapEvent;
+
 setIntroLoadingState(true, 'Loading election data...');
 
 if (closeIntroBtn) {
@@ -228,6 +262,14 @@ function endTour() {
 
 function showTourStep(stepIndex) {
     const step = tourSteps[stepIndex];
+    trackMapEvent('tour_step_view', {
+        step_index: stepIndex,
+        step_number: stepIndex + 1,
+        step_title: step?.title || null,
+        step_target: step?.target || 'none',
+        total_steps: tourSteps.length
+    });
+
     tourTitle.textContent = step.title;
     tourDescription.textContent = step.description;
     tourProgress.textContent = `${stepIndex + 1} / ${tourSteps.length}`;
@@ -306,6 +348,10 @@ if (tourNextBtn) {
             currentTourStep++;
             showTourStep(currentTourStep);
         } else {
+            trackMapEvent('tour_complete', {
+                completed_steps: tourSteps.length,
+                total_steps: tourSteps.length
+            });
             endTour();
         }
     });
@@ -313,6 +359,14 @@ if (tourNextBtn) {
 
 if (tourSkipBtn) {
     tourSkipBtn.addEventListener('click', () => {
+        const step = tourSteps[currentTourStep];
+        trackMapEvent('tour_exit_early', {
+            step_index: currentTourStep,
+            step_number: currentTourStep + 1,
+            step_title: step?.title || null,
+            steps_remaining: Math.max(0, tourSteps.length - (currentTourStep + 1)),
+            total_steps: tourSteps.length
+        });
         endTour();
     });
 }

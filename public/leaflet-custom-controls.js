@@ -235,6 +235,61 @@ L.Control.ElectionSelector = L.Control.extend({
         });
     },
 
+    _getAnalyticsContext: function() {
+        return {
+            vision_mode: this._colorblindMode,
+            transparency_level: parseInt(this._opacity, 10)
+        };
+    },
+
+    _trackSelectionEvent: function(eventName, params = {}) {
+        if (typeof window.trackMapEvent !== 'function') return;
+        window.trackMapEvent(eventName, {
+            ...this._getAnalyticsContext(),
+            ...params
+        });
+    },
+
+    _getContestSelectionInfo: function() {
+        const contestIndex = this._contestSelector ? this._contestSelector.value : null;
+        if (contestIndex === null || contestIndex === undefined || contestIndex === '') return null;
+
+        const contest = this._contests[contestIndex];
+        if (!contest) return null;
+
+        return {
+            contest_index: parseInt(contestIndex, 10),
+            contest_label: contest.label || null
+        };
+    },
+
+    _getViewSelectionInfo: function() {
+        const choiceValue = this._choiceSelector ? this._choiceSelector.value : null;
+        if (choiceValue === null || choiceValue === undefined || choiceValue === '') return null;
+
+        if (choiceValue === 'w') {
+            return {
+                view_id: 'w',
+                view_label: 'Winner by Precinct'
+            };
+        }
+
+        if (choiceValue === 't') {
+            return {
+                view_id: 't',
+                view_label: 'Contest Turnout'
+            };
+        }
+
+        const contest = this._getActiveContest();
+        const choice = contest?.choices?.[choiceValue];
+
+        return {
+            view_id: `${choiceValue}`,
+            view_label: choice?.label || `Choice ${choiceValue}`
+        };
+    },
+
     _contestChanged: function() {
         this._close();
         this._layer._map.closePopup();
@@ -243,6 +298,15 @@ L.Control.ElectionSelector = L.Control.extend({
         this._syncTiePatternDefs(this._getActiveContest());
         this._layer.setStyle(this._createStyle());
         this._notifyLegendChanged();
+        const contestInfo = this._getContestSelectionInfo();
+        const viewInfo = this._getViewSelectionInfo();
+        if (contestInfo) {
+            this._trackSelectionEvent('race_selection', {
+                ...contestInfo,
+                view_id: viewInfo?.view_id,
+                view_label: viewInfo?.view_label
+            });
+        }
         this._layer._map.flyToBounds(this._layer.getLayers().reduce((bounds, feature) => {
             if(this._contests[this.selection.contest].precincts[feature.feature.properties[this._precinctIDField]]) bounds.push(feature.getBounds());
             return bounds;
@@ -253,6 +317,15 @@ L.Control.ElectionSelector = L.Control.extend({
         this._layer._map.closePopup();
         this._layer.setStyle(this._createStyle());
         this._notifyLegendChanged();
+        const contestInfo = this._getContestSelectionInfo();
+        const viewInfo = this._getViewSelectionInfo();
+        if (viewInfo) {
+            this._trackSelectionEvent('view_selection', {
+                contest_index: contestInfo?.contest_index,
+                contest_label: contestInfo?.contest_label,
+                ...viewInfo
+            });
+        }
     },
 
     _transformColorForColorblindMode: function(hexColor) {
