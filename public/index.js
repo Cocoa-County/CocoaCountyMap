@@ -33,6 +33,20 @@ const loadElectionDatasetBtn = document.getElementById('load-election-dataset');
 const electionBrowserTitle = document.getElementById('election-browser-title');
 const electionBrowserList = document.getElementById('election-browser-list');
 const electionBrowserStatus = document.getElementById('election-browser-status');
+const shareOverlay = document.getElementById('share-overlay');
+const closeShareBtn = document.getElementById('close-share');
+const copyShareLinkBtn = document.getElementById('copy-share-link');
+const shareLinkPreview = document.getElementById('share-link-preview');
+const shareCopyStatus = document.getElementById('share-copy-status');
+const shareDatasourceInput = document.getElementById('share-datasource-input');
+const shareToggleIds = {
+    contest: 'share-include-contest',
+    view: 'share-include-view',
+    vision: 'share-include-vision',
+    opacity: 'share-include-opacity',
+    advanced: 'share-include-advanced',
+    datasource: 'share-include-datasource'
+};
 const queryParams = {
     election: 'election',
     datasource: 'datasource',
@@ -59,6 +73,7 @@ let electionLoadToken = 0;
 const expandedElectionGroups = new Set();
 let hasAutoExpandedActiveGroup = false;
 const snapshotModeWarnings = new Set();
+let shareCopyStatusTimeout = null;
 
 window.availableElections = [];
 
@@ -123,6 +138,18 @@ if (closeElectionBrowserBtn) {
     });
 }
 
+if (closeShareBtn) {
+    closeShareBtn.addEventListener('click', () => {
+        closeShareModal();
+    });
+}
+
+if (copyShareLinkBtn) {
+    copyShareLinkBtn.addEventListener('click', async () => {
+        await copyShareLinkToClipboard();
+    });
+}
+
 if (loadElectionDatasetBtn) {
     loadElectionDatasetBtn.addEventListener('click', async () => {
         const pendingSnapshot = getPendingSnapshot();
@@ -139,6 +166,34 @@ if (electionBrowserOverlay) {
     });
 }
 
+if (shareOverlay) {
+    shareOverlay.addEventListener('click', event => {
+        if (event.target === shareOverlay) closeShareModal();
+    });
+}
+
+if (shareDatasourceInput) {
+    shareDatasourceInput.addEventListener('input', () => {
+        const datasourceToggle = getShareToggle('datasource');
+        if (datasourceToggle) {
+            const typedValue = shareDatasourceInput.value.trim();
+            const usingDefaultDataSource = !typedValue || isDefaultDataSourceValue(typedValue);
+            datasourceToggle.disabled = usingDefaultDataSource;
+            datasourceToggle.checked = !usingDefaultDataSource && !!typedValue;
+        }
+        updateShareLinkPreview();
+    });
+}
+
+Object.values(shareToggleIds).forEach(toggleId => {
+    const input = document.getElementById(toggleId);
+    if (!input) return;
+    input.addEventListener('change', () => {
+        syncShareToggleDependencies();
+        updateShareLinkPreview();
+    });
+});
+
 document.querySelectorAll('input[name="colorblind-mode"]').forEach(radio => {
     radio.addEventListener('change', (e) => {
         applyColorblindMode(e.target.value);
@@ -151,7 +206,12 @@ document.addEventListener('keydown', event => {
     if (event.key === 'Escape' && electionBrowserOverlay && !electionBrowserOverlay.classList.contains('hidden')) {
         closeElectionBrowser();
     }
+    if (event.key === 'Escape' && shareOverlay && !shareOverlay.classList.contains('hidden')) {
+        closeShareModal();
+    }
 });
+
+window.openShareModal = openShareModal;
 
 // Tour functionality
 const baseTourSteps = [
@@ -828,6 +888,266 @@ function setElectionBrowserStatus(message) {
     electionBrowserStatus.classList.remove('hidden');
 }
 
+function getShareToggle(toggleName) {
+    return document.getElementById(shareToggleIds[toggleName]);
+}
+
+function getCurrentHierarchyState(snapshot = getActiveSnapshot()) {
+    const electionId = snapshot?.selectionElectionId || snapshot?.electionGroupId || snapshot?.electionId || snapshot?.id || null;
+    const snapshotId = snapshot?.id || snapshot?.snapshotId || null;
+    const geographyId = snapshot && getSnapshotGeographies(snapshot).length > 1 ? activeGeographyId : null;
+
+    return {
+        electionId,
+        snapshotId,
+        geographyId
+    };
+}
+
+function buildHierarchyQueryValue(snapshot, options = {}) {
+    const {
+        includeSnapshotId = true,
+        includeLayerId = true
+    } = options;
+
+    const { electionId, snapshotId, geographyId } = getCurrentHierarchyState(snapshot);
+    if (!electionId) return null;
+
+    const hierarchySegments = [
+        encodeHierarchySegment(electionId)
+    ];
+
+    if (includeSnapshotId && snapshotId) {
+        hierarchySegments.push(encodeHierarchySegment(snapshotId));
+
+        if (includeLayerId && geographyId) {
+            hierarchySegments.push(encodeHierarchySegment(geographyId));
+        }
+    }
+
+    return hierarchySegments.filter(Boolean).join(hierarchySeparator);
+}
+
+function preserveReadableHierarchySeparator(urlString) {
+    return `${urlString}`.replace(/%7E/gi, hierarchySeparator);
+}
+
+function toShareableDataSourceValue(value) {
+    const withScheme = applyDataSourceDefaultScheme(value);
+    if (!withScheme) return null;
+
+    let parsedUrl;
+    try {
+        parsedUrl = new URL(withScheme);
+    } catch {
+        return `${value}`.trim() || null;
+    }
+
+    parsedUrl.search = '';
+    parsedUrl.hash = '';
+
+    const pathname = parsedUrl.pathname || '/';
+    const trimmedPath = pathname.replace(/\/elections\.index\.json$/i, '').replace(/\/+$/, '');
+    parsedUrl.pathname = trimmedPath || '/';
+
+    return parsedUrl.toString().replace(/\/$/, '');
+}
+
+function getDefaultDataSourceShareValue() {
+    for (const indexFile of electionsIndexFiles) {
+        const normalized = toShareableDataSourceValue(indexFile);
+        if (normalized) return normalized;
+    }
+
+    return null;
+}
+
+function isDefaultDataSourceValue(value) {
+    const normalized = toShareableDataSourceValue(value);
+    if (!normalized) return false;
+
+    return electionsIndexFiles.some(indexFile => toShareableDataSourceValue(indexFile) === normalized);
+}
+
+function getCurrentDataSourceShareValue() {
+    const queryDataSource = getDataSourceFromQuery();
+    if (queryDataSource) return toShareableDataSourceValue(queryDataSource);
+    if (electionsIndexSourceUrl) return toShareableDataSourceValue(electionsIndexSourceUrl);
+    return getDefaultDataSourceShareValue();
+}
+
+function getCurrentSelectorUiState() {
+    return window.selector && typeof window.selector.getUiState === 'function'
+        ? window.selector.getUiState()
+        : null;
+}
+
+function isDefaultContestShareValue(value) {
+    return value === null || value === undefined || `${value}` === '0';
+}
+
+function isDefaultViewShareValue(value) {
+    return value === null || value === undefined || `${value}` === 'w';
+}
+
+function isDefaultVisionShareValue(value) {
+    return value === null || value === undefined || `${value}` === 'normal';
+}
+
+function isDefaultOpacityShareValue(value) {
+    return !Number.isFinite(value) || Number.parseInt(value, 10) === 100;
+}
+
+function initializeShareModalOptions() {
+    const selectorState = getCurrentSelectorUiState();
+    const currentDataSource = getCurrentDataSourceShareValue();
+    const usingDefaultDataSource = isDefaultDataSourceValue(currentDataSource);
+    const shareDefaults = {
+        contest: !isDefaultContestShareValue(selectorState?.selectedContestValue),
+        view: !isDefaultViewShareValue(selectorState?.selectedChoiceValue),
+        vision: !isDefaultVisionShareValue(selectorState?.colorblindMode),
+        opacity: !isDefaultOpacityShareValue(selectorState?.opacity),
+        advanced: !!shouldShowLoadDatasetButtonFromQuery(),
+        datasource: !!currentDataSource && !usingDefaultDataSource
+    };
+
+    Object.entries(shareToggleIds).forEach(([toggleName, toggleId]) => {
+        const input = document.getElementById(toggleId);
+        if (!input) return;
+        input.checked = !!shareDefaults[toggleName];
+    });
+
+    const datasourceToggle = getShareToggle('datasource');
+    if (shareDatasourceInput) {
+        shareDatasourceInput.value = currentDataSource || '';
+    }
+    if (datasourceToggle) {
+        datasourceToggle.disabled = usingDefaultDataSource;
+    }
+}
+
+function syncShareToggleDependencies() {
+    return;
+}
+
+function buildShareUrl() {
+    const url = new URL(window.location.href);
+    url.search = '';
+
+    const activeSnapshot = getActiveSnapshot();
+    const selectorState = getCurrentSelectorUiState();
+    const includeContest = !!getShareToggle('contest')?.checked;
+    const includeView = !!getShareToggle('view')?.checked;
+    const includeVision = !!getShareToggle('vision')?.checked;
+    const includeOpacity = !!getShareToggle('opacity')?.checked;
+    const includeAdvanced = !!getShareToggle('advanced')?.checked;
+    const includeDatasource = !!getShareToggle('datasource')?.checked;
+
+    const hierarchyValue = buildHierarchyQueryValue(activeSnapshot, {
+        includeSnapshotId: true,
+        includeLayerId: true
+    });
+
+    if (hierarchyValue) {
+        url.searchParams.set(queryParams.election, hierarchyValue);
+    }
+
+    if (includeContest && selectorState?.selectedContestValue !== undefined && selectorState?.selectedContestValue !== null) {
+        url.searchParams.set(queryParams.contest, `${selectorState.selectedContestValue}`);
+    }
+
+    if (includeView && selectorState?.selectedChoiceValue !== undefined && selectorState?.selectedChoiceValue !== null) {
+        url.searchParams.set(queryParams.view, `${selectorState.selectedChoiceValue}`);
+    }
+
+    if (includeVision && selectorState?.colorblindMode) {
+        url.searchParams.set(queryParams.vision, selectorState.colorblindMode);
+    }
+
+    if (includeOpacity && Number.isFinite(selectorState?.opacity)) {
+        url.searchParams.set(queryParams.opacity, `${selectorState.opacity}`);
+    }
+
+    if (includeAdvanced) {
+        url.searchParams.set(queryParams.advanced, 'true');
+    }
+
+    if (includeDatasource) {
+        const dataSourceValue = toShareableDataSourceValue(shareDatasourceInput ? shareDatasourceInput.value.trim() : getCurrentDataSourceShareValue());
+        if (dataSourceValue) {
+            url.searchParams.set(queryParams.datasource, dataSourceValue);
+        }
+    }
+
+    return preserveReadableHierarchySeparator(url.toString());
+}
+
+function updateShareLinkPreview() {
+    if (!shareLinkPreview) return;
+    shareLinkPreview.value = buildShareUrl();
+}
+
+function setShareCopyStatus(message) {
+    if (!shareCopyStatus) return;
+    shareCopyStatus.textContent = message;
+
+    if (shareCopyStatusTimeout) {
+        clearTimeout(shareCopyStatusTimeout);
+        shareCopyStatusTimeout = null;
+    }
+
+    if (!message) return;
+
+    shareCopyStatusTimeout = window.setTimeout(() => {
+        if (shareCopyStatus) shareCopyStatus.textContent = '';
+        shareCopyStatusTimeout = null;
+    }, 2400);
+}
+
+function fallbackCopyTextToClipboard(text) {
+    const tempTextArea = document.createElement('textarea');
+    tempTextArea.value = text;
+    tempTextArea.setAttribute('readonly', '');
+    tempTextArea.style.position = 'absolute';
+    tempTextArea.style.left = '-9999px';
+    document.body.appendChild(tempTextArea);
+    tempTextArea.select();
+    document.execCommand('copy');
+    document.body.removeChild(tempTextArea);
+}
+
+async function copyShareLinkToClipboard() {
+    const shareUrl = buildShareUrl();
+
+    try {
+        if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(shareUrl);
+        } else {
+            fallbackCopyTextToClipboard(shareUrl);
+        }
+
+        if (shareLinkPreview) shareLinkPreview.value = shareUrl;
+        setShareCopyStatus('Share link copied.');
+    } catch (error) {
+        console.error('Failed to copy share link:', error);
+        setShareCopyStatus('Unable to copy link.');
+    }
+}
+
+function openShareModal() {
+    if (!shareOverlay) return;
+    initializeShareModalOptions();
+    updateShareLinkPreview();
+    setShareCopyStatus('');
+    shareOverlay.classList.remove('hidden');
+}
+
+function closeShareModal() {
+    if (!shareOverlay) return;
+    shareOverlay.classList.add('hidden');
+    setShareCopyStatus('');
+}
+
 function renderElectionBrowserList() {
     if (!electionBrowserList) return;
 
@@ -1319,33 +1639,20 @@ function setSelectionQueryParams(snapshot, options = {}) {
 
     const url = new URL(window.location.href);
 
-    const electionId = snapshot?.selectionElectionId || snapshot?.electionGroupId || snapshot?.electionId || snapshot?.id || null;
-    const snapshotId = snapshot?.id || snapshot?.snapshotId || null;
-    const geographyId = getSnapshotGeographies(snapshot).length > 1 ? activeGeographyId : null;
-    const shouldIncludeSnapshotId = !!includeSnapshotId;
-    const shouldIncludeLayerId = !!includeLayerId;
+    const hierarchyValue = buildHierarchyQueryValue(snapshot, {
+        includeSnapshotId: !!includeSnapshotId,
+        includeLayerId: !!includeLayerId
+    });
 
-    if (!electionId) {
+    if (!hierarchyValue) {
         url.searchParams.delete(queryParams.election);
-        window.history.replaceState({}, '', url);
+        window.history.replaceState({}, '', preserveReadableHierarchySeparator(url.toString()));
         return;
     }
 
-    const hierarchySegments = [
-        encodeHierarchySegment(electionId)
-    ];
+    url.searchParams.set(queryParams.election, hierarchyValue);
 
-    if (shouldIncludeSnapshotId && snapshotId) {
-        hierarchySegments.push(encodeHierarchySegment(snapshotId));
-
-        if (shouldIncludeLayerId && geographyId) {
-            hierarchySegments.push(encodeHierarchySegment(geographyId));
-        }
-    }
-
-    url.searchParams.set(queryParams.election, hierarchySegments.filter(Boolean).join(hierarchySeparator));
-
-    window.history.replaceState({}, '', url);
+    window.history.replaceState({}, '', preserveReadableHierarchySeparator(url.toString()));
 }
 
 function getJsonCacheBustToken() {

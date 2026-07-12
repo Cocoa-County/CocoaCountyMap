@@ -199,14 +199,26 @@ L.Control.ElectionSelector = L.Control.extend({
         div.innerHTML = '<p><b>Map Controls</b></p>';
         div.appendChild(pinButton);
 
+        let actionGroup = L.DomUtil.create('div', 'election-selector-title-actions', div);
+
         // Add help button
-        let helpButton = L.DomUtil.create('button', 'election-selector-help-btn', div);
+        let helpButton = L.DomUtil.create('button', 'election-selector-help-btn', actionGroup);
         helpButton.textContent = 'Help & About';
         L.DomEvent.on(helpButton, 'click', (e) => {
             L.DomEvent.stopPropagation(e);
             const introOverlay = document.getElementById('intro-overlay');
             if (introOverlay) {
                 introOverlay.classList.remove('hidden');
+            }
+        }, this);
+
+        let shareButton = L.DomUtil.create('button', 'election-selector-share-btn', actionGroup);
+        shareButton.type = 'button';
+        shareButton.textContent = 'Share';
+        L.DomEvent.on(shareButton, 'click', (e) => {
+            L.DomEvent.stopPropagation(e);
+            if (typeof window.openShareModal === 'function') {
+                window.openShareModal();
             }
         }, this);
     },

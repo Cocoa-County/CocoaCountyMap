@@ -96,6 +96,48 @@
             <div id="election-browser-list"></div>
         </div>
     </div>
+    <div id="share-overlay" class="hidden">
+        <div id="share-content" role="dialog" aria-modal="true" aria-labelledby="share-title">
+            <div id="share-header">
+                <h2 id="share-title">Share This View</h2>
+                <button id="close-share" aria-label="Close share modal">Close</button>
+            </div>
+            <p id="share-subtitle">Choose which map settings to include in the shared link.</p>
+            <div id="share-option-sections">
+                <section class="share-option-section">
+                    <h3 class="share-option-section-title">Election Options</h3>
+                    <div class="share-options-grid">
+                        <label class="share-toggle"><input type="checkbox" id="share-include-contest"> Contest</label>
+                        <label class="share-toggle"><input type="checkbox" id="share-include-view"> View</label>
+                    </div>
+                </section>
+                <section class="share-option-section">
+                    <h3 class="share-option-section-title">View Options</h3>
+                    <div class="share-options-grid">
+                        <label class="share-toggle"><input type="checkbox" id="share-include-vision"> Vision Mode</label>
+                        <label class="share-toggle"><input type="checkbox" id="share-include-opacity"> Opacity</label>
+                    </div>
+                </section>
+            </div>
+            <details id="share-advanced-options">
+                <summary>Advanced Options</summary>
+                <div id="share-advanced-options-grid">
+                    <label class="share-toggle"><input type="checkbox" id="share-include-advanced"> Advanced Mode</label>
+                    <div class="share-advanced-datasource-block">
+                        <label class="share-toggle"><input type="checkbox" id="share-include-datasource"> Data Source</label>
+                        <label id="share-datasource-label" for="share-datasource-input">Datasource Value</label>
+                        <input id="share-datasource-input" type="text" placeholder="localhost:8080 or https://example.com/data-repo">
+                    </div>
+                </div>
+            </details>
+            <label id="share-link-label" for="share-link-preview">Share URL</label>
+            <textarea id="share-link-preview" rows="4" readonly></textarea>
+            <div id="share-actions">
+                <span id="share-copy-status" aria-live="polite"></span>
+                <button id="copy-share-link">Copy Link</button>
+            </div>
+        </div>
+    </div>
     <div id="tour-overlay" class="hidden">
         <div id="tour-spotlight"></div>
         <div id="tour-content">
