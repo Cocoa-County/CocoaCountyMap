@@ -27,15 +27,17 @@ L.Control.ElectionSelector = L.Control.extend({
 
         this._title = title;
 
-        this._opacity = 100;
-        this._closed = false;
-        this._pinned = false;
-        this._colorblindMode = 'normal';
+        this._opacity = Number.isFinite(options.opacity) ? options.opacity : 100;
+        this._closed = options.closed !== false;
+        this._pinned = options.pinned === true;
+        this._colorblindMode = options.colorblindMode || 'normal';
         this._layer = layer;
         this._contests = contests;
         this._precinctIDField = precinctIDField;
         this._geographies = Array.isArray(options.geographies) ? options.geographies : [];
         this._selectedGeographyId = options.selectedGeographyId || null;
+        this._selectedContestValue = options.selectedContestValue ?? null;
+        this._selectedChoiceValue = options.selectedChoiceValue ?? null;
         this._onGeographyChange = typeof options.onGeographyChange === 'function' ? options.onGeographyChange : null;
         this._tieDefsContainer = null;
         this._legendControl = null;
@@ -103,14 +105,42 @@ L.Control.ElectionSelector = L.Control.extend({
         let drawer = this._drawer = L.DomUtil.create('div', 'election-selector-drawer leaflet-bar', container);
         this._addTitle();
         this._addControls();
-        this._contestSelector = L.DomUtil.create('select', 'election-selector-select', drawer);
-        this._choiceSelector = L.DomUtil.create('select', 'election-selector-select', drawer);
+
+        let contestRow = L.DomUtil.create('div', 'election-selector-inline-row', drawer);
+        let contestLabel = L.DomUtil.create('label', 'election-selector-inline-label', contestRow);
+        contestLabel.textContent = 'Contest:';
+        contestLabel.htmlFor = 'contest-selector';
+
+        this._contestSelector = L.DomUtil.create('select', 'election-selector-inline-select', contestRow);
+        this._contestSelector.id = 'contest-selector';
+        this._contestSelector.setAttribute('aria-label', 'Select contest');
+
+        let viewRow = L.DomUtil.create('div', 'election-selector-inline-row', drawer);
+        let viewLabel = L.DomUtil.create('label', 'election-selector-inline-label', viewRow);
+        viewLabel.textContent = 'View:';
+        viewLabel.htmlFor = 'choice-selector';
+
+        this._choiceSelector = L.DomUtil.create('select', 'election-selector-inline-select', viewRow);
+        this._choiceSelector.id = 'choice-selector';
+        this._choiceSelector.setAttribute('aria-label', 'Select contest view');
 
   		L.DomEvent.disableClickPropagation(container);
   		L.DomEvent.disableScrollPropagation(container);
 
         this._addContests(Object.values(this._contests));
+        if (this._selectedContestValue !== null && this._selectedContestValue !== undefined) {
+            let selectedContest = `${this._selectedContestValue}`;
+            if (Array.from(this._contestSelector.options).some(option => option.value === selectedContest)) {
+                this._contestSelector.value = selectedContest;
+            }
+        }
         this._addChoices(this._contests[this._contestSelector.value].choices);
+        if (this._selectedChoiceValue !== null && this._selectedChoiceValue !== undefined) {
+            let selectedChoice = `${this._selectedChoiceValue}`;
+            if (Array.from(this._choiceSelector.options).some(option => option.value === selectedChoice)) {
+                this._choiceSelector.value = selectedChoice;
+            }
+        }
         this._getTieDefsRoot(true);
         this._syncTiePatternDefs(this._getActiveContest());
 
@@ -140,7 +170,11 @@ L.Control.ElectionSelector = L.Control.extend({
             }
         }, this);
 
-        this._close();
+        if (this._closed) {
+            this._close(true);
+        } else {
+            this._open();
+        }
         this._notifyLegendChanged();
 
         return container;
@@ -176,30 +210,13 @@ L.Control.ElectionSelector = L.Control.extend({
     _addControls: function(){
         let controls = L.DomUtil.create('div', 'election-selector-controls', this._drawer);
 
-        let opacityLabel = L.DomUtil.create('p', 'election-selector-control-label', controls);
+        let opacityRow = L.DomUtil.create('div', 'election-selector-inline-row', controls);
+        let opacityLabel = L.DomUtil.create('label', 'election-selector-inline-label', opacityRow);
         opacityLabel.textContent = 'Opacity:';
+        opacityLabel.htmlFor = 'opacity-slider';
 
-        if (this._geographies.length > 1) {
-            let geographyRow = L.DomUtil.create('div', 'election-selector-inline-row', controls);
-            let geographyLabel = L.DomUtil.create('label', 'election-selector-inline-label', geographyRow);
-            geographyLabel.textContent = 'Layer:';
-            geographyLabel.htmlFor = 'geography-selector';
-
-            let geographySelector = this._geographySelector = L.DomUtil.create('select', 'election-selector-inline-select', geographyRow);
-            geographySelector.id = 'geography-selector';
-            geographySelector.setAttribute('aria-label', 'Select map layer geography');
-
-            this._geographies.forEach(geography => {
-                let option = L.DomUtil.create('option', 'election-selector-option', geographySelector);
-                option.value = geography.id;
-                option.textContent = geography.label || geography.id;
-                option.selected = geography.id === this._selectedGeographyId;
-            });
-
-            L.DomEvent.on(geographySelector, 'change', this._geographyChanged, this);
-        }
-
-        let slider = L.DomUtil.create('input', 'election-selector-slider', controls);
+        let slider = L.DomUtil.create('input', 'election-selector-slider', opacityRow);
+        slider.id = 'opacity-slider';
         slider.type = "range";
         slider.min = 0;
         slider.max = 100;
@@ -237,6 +254,26 @@ L.Control.ElectionSelector = L.Control.extend({
             this._layer.setStyle(this._createStyle());
             this._notifyLegendChanged();
         }, this);
+
+        if (this._geographies.length > 1) {
+            let geographyRow = L.DomUtil.create('div', 'election-selector-inline-row', controls);
+            let geographyLabel = L.DomUtil.create('label', 'election-selector-inline-label', geographyRow);
+            geographyLabel.textContent = 'Layer:';
+            geographyLabel.htmlFor = 'geography-selector';
+
+            let geographySelector = this._geographySelector = L.DomUtil.create('select', 'election-selector-inline-select', geographyRow);
+            geographySelector.id = 'geography-selector';
+            geographySelector.setAttribute('aria-label', 'Select map layer geography');
+
+            this._geographies.forEach(geography => {
+                let option = L.DomUtil.create('option', 'election-selector-option', geographySelector);
+                option.value = geography.id;
+                option.textContent = geography.label || geography.id;
+                option.selected = geography.id === this._selectedGeographyId;
+            });
+
+            L.DomEvent.on(geographySelector, 'change', this._geographyChanged, this);
+        }
     },
 
     _addContests: function(contests) {
@@ -659,6 +696,17 @@ L.Control.ElectionSelector = L.Control.extend({
         }
     },
 
+    getUiState: function() {
+        return {
+            pinned: this._pinned === true,
+            closed: this._closed === true,
+            opacity: Number.parseInt(this._opacity, 10),
+            colorblindMode: this._colorblindMode || 'normal',
+            selectedContestValue: this._contestSelector ? this._contestSelector.value : this.selection.contest,
+            selectedChoiceValue: this._choiceSelector ? this._choiceSelector.value : this.selection.choice
+        };
+    },
+
     _togglePin: function() {
         this._pinned = !this._pinned;
         setPinButtonState(this._pinButton, this._pinned);
@@ -686,9 +734,10 @@ L.Control.LegendPanel = L.Control.extend({
     },
 
     initialize: function(selector, options) {
+        options = options || {};
         this._selector = selector;
-        this._closed = false;
-        this._pinned = false;
+        this._closed = options.closed !== false;
+        this._pinned = options.pinned === true;
         this._legendState = null;
         this._fallbackColors = ['#1f78b4','#e31a1c','#33a02c','#ff7f00','#6a3d9a','#ffff99','#b15928','#a6cee3','#fb9a99','#b2df8a','#fdbf6f','#cab2d6'];
     },
@@ -724,7 +773,11 @@ L.Control.LegendPanel = L.Control.extend({
             }
         }, this);
 
-        this._close();
+        if (this._closed) {
+            this._close(true);
+        } else {
+            this._open();
+        }
         this._renderLegend();
 
         return container;
@@ -844,6 +897,13 @@ L.Control.LegendPanel = L.Control.extend({
     _togglePin: function() {
         this._pinned = !this._pinned;
         setPinButtonState(this._pinButton, this._pinned);
+    },
+
+    getUiState: function() {
+        return {
+            pinned: this._pinned === true,
+            closed: this._closed === true
+        };
     },
 
     _close: function(force) {

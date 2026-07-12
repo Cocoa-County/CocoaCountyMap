@@ -19,8 +19,13 @@ body {
   width: 100%;
 }
 
-.election-selector {
+.election-selector,
+.legend-control {
   background-color: white;
+  border: 1px solid #d8dee6;
+  border-radius: 10px;
+  box-shadow: 0 10px 24px rgba(20, 35, 55, 0.12);
+  overflow: hidden;
 }
 
 .election-selector-drawer,
@@ -48,17 +53,14 @@ body {
   box-sizing: border-box;
 }
 
-.election-selector div{
-  width: 100%;
-  display: block;
-  border: 1px solid #ccc;
-  box-sizing: border-box;
-  text-align: center;
-}
-
 .election-selector-credits {
   position: relative;
   padding: 8px 0 10px 0;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: center;
+  border-bottom: 1px solid #e7ecf2;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
 }
 
 .legend-control-credits {
@@ -125,8 +127,18 @@ body {
 }
 
 .election-selector-slider{
-  width: 90%;
-  margin: 3px 5%;
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  margin: 0;
+}
+
+.election-selector-controls {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  box-sizing: border-box;
 }
 
 .election-selector-inline-row {
@@ -135,10 +147,19 @@ body {
   gap: 8px;
   padding: 6px 10px;
   border: none !important;
-  border-top: 1px solid #e8e8e8 !important;
+  border-top: 1px solid #e7ecf2 !important;
   box-sizing: border-box;
   width: 100%;
-  background-color: #fafafa;
+  text-align: left;
+  background-color: #fafbfd;
+}
+
+.election-selector-controls .election-selector-inline-row:first-child {
+  border-top: none !important;
+}
+
+.election-selector-drawer > .election-selector-inline-row {
+  border-top: 1px solid #e7ecf2 !important;
 }
 
 .election-selector-inline-label {
@@ -146,6 +167,7 @@ body {
   font-size: 12px;
   font-weight: 600;
   color: #555;
+  width: 92px;
   flex-shrink: 0;
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -193,10 +215,6 @@ body {
   background-color: #1565a0;
 }
 
-.legend-control {
-  background-color: white;
-}
-
 .legend-control.closed {
   width: 36px;
   height: 36px;
@@ -218,12 +236,13 @@ body {
 .legend-control-drawer > .legend-control-credits,
 .legend-control-drawer > .legend-control-body {
   width: 100%;
-  border: 1px solid #ccc;
   box-sizing: border-box;
 }
 
 .legend-control-drawer > .legend-control-credits {
   text-align: center;
+  border-bottom: 1px solid #e7ecf2;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
 }
 
 .legend-control-body {
@@ -471,128 +490,6 @@ P.popup-subtitle{
 
 #close-intro:hover {
   background-color: #1565a0;
-}
-
-#accessibility-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(0, 0, 0, 0.85);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 10002;
-}
-
-#accessibility-overlay.hidden {
-  display: none;
-}
-
-#accessibility-content {
-  background-color: white;
-  width: min(560px, calc(100% - 30px));
-  max-height: calc(100vh - 60px);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  overflow-y: auto;
-}
-
-#accessibility-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 16px;
-}
-
-#accessibility-title {
-  margin: 0;
-  font-size: 24px;
-  color: #333;
-}
-
-#close-accessibility {
-  border: none;
-  border-radius: 4px;
-  background-color: #1f78b4;
-  color: white;
-  padding: 8px 14px;
-  cursor: pointer;
-}
-
-#close-accessibility:hover {
-  background-color: #1565a0;
-}
-
-.accessibility-section {
-  margin-bottom: 24px;
-}
-
-.accessibility-section h3 {
-  margin: 0 0 6px 0;
-  font-size: 16px;
-  color: #222;
-}
-
-.accessibility-section p {
-  margin: 0 0 14px 0;
-  font-size: 13px;
-  color: #666;
-}
-
-.accessibility-options {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.accessibility-option {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  grid-template-rows: auto auto;
-  column-gap: 10px;
-  align-items: center;
-  padding: 10px 12px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background-color 0.15s, border-color 0.15s;
-}
-
-.accessibility-option:hover {
-  background-color: #f5f9ff;
-  border-color: #aac8e8;
-}
-
-.accessibility-option input[type="radio"] {
-  grid-row: 1 / 3;
-  margin: 0;
-  accent-color: #1f78b4;
-  width: 16px;
-  height: 16px;
-}
-
-.accessibility-option-label {
-  font-size: 14px;
-  font-weight: 600;
-  color: #222;
-  line-height: 1.3;
-}
-
-.accessibility-option-tag {
-  font-weight: 400;
-  color: #555;
-}
-
-.accessibility-option-desc {
-  font-size: 12px;
-  color: #777;
-  line-height: 1.3;
 }
 
 #election-browser-overlay {

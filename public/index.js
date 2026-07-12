@@ -134,39 +134,10 @@ if (electionBrowserOverlay) {
     });
 }
 
-// Accessibility overlay handlers
-const accessibilityOverlay = document.getElementById('accessibility-overlay');
-const openAccessibilityBtn = document.getElementById('open-accessibility');
-const closeAccessibilityBtn = document.getElementById('close-accessibility');
-
-if (openAccessibilityBtn) {
-    openAccessibilityBtn.addEventListener('click', () => {
-        openAccessibility();
-    });
-}
-
-if (closeAccessibilityBtn) {
-    closeAccessibilityBtn.addEventListener('click', () => {
-        closeAccessibility();
-    });
-}
-
-if (accessibilityOverlay) {
-    accessibilityOverlay.addEventListener('click', event => {
-        if (event.target === accessibilityOverlay) closeAccessibility();
-    });
-}
-
 document.querySelectorAll('input[name="colorblind-mode"]').forEach(radio => {
     radio.addEventListener('change', (e) => {
         applyColorblindMode(e.target.value);
     });
-});
-
-document.addEventListener('keydown', event => {
-    if (event.key === 'Escape' && accessibilityOverlay && !accessibilityOverlay.classList.contains('hidden')) {
-        closeAccessibility();
-    }
 });
 
 applyAdvancedModeUiVisibilityFromQuery();
@@ -717,6 +688,13 @@ function buildPrecinctLayer(precincts, addData) {
 }
 
 function buildElectionSelector(snapshot = getActiveSnapshot(), geographies = getSnapshotGeographies(snapshot), selectedGeography = getSelectedGeography(snapshot, activeGeographyId)) {
+    const selectorUiState = window.selector && typeof window.selector.getUiState === 'function'
+        ? window.selector.getUiState()
+        : null;
+    const legendUiState = window.legend && typeof window.legend.getUiState === 'function'
+        ? window.legend.getUiState()
+        : null;
+
     if (window.selector) {
         map.removeControl(window.selector);
         window.selector = null;
@@ -730,6 +708,12 @@ function buildElectionSelector(snapshot = getActiveSnapshot(), geographies = get
         window.selector = L.control.ElectionSelector(pageTitle, precinctsLayer, contests, precinctIDField, {
             geographies,
             selectedGeographyId: selectedGeography?.id || activeGeographyId,
+            pinned: selectorUiState?.pinned,
+            closed: selectorUiState?.closed,
+            opacity: selectorUiState?.opacity,
+            colorblindMode: selectorUiState?.colorblindMode,
+            selectedContestValue: selectorUiState?.selectedContestValue,
+            selectedChoiceValue: selectorUiState?.selectedChoiceValue,
             onGeographyChange: async geographyId => {
                 const activeSnapshot = getActiveSnapshot();
                 if (!activeSnapshot || isElectionLoadInProgress) return;
@@ -740,7 +724,10 @@ function buildElectionSelector(snapshot = getActiveSnapshot(), geographies = get
                 });
             }
         }).addTo(map);
-        window.legend = L.control.LegendPanel(window.selector).addTo(map);
+        window.legend = L.control.LegendPanel(window.selector, {
+            pinned: legendUiState?.pinned,
+            closed: legendUiState?.closed
+        }).addTo(map);
         window.selector.setLegendControl(window.legend);
 
         if (precinctsLayer && precinctsLayer._tieDefsRoot && typeof window.selector._syncTiePatternDefs === 'function') {
@@ -755,16 +742,6 @@ function applyDefaultMapView() {
     } else {
         map.setView(defaultMapView.center, defaultMapView.zoom);
     }
-}
-
-function openAccessibility() {
-    if (!accessibilityOverlay) return;
-    accessibilityOverlay.classList.remove('hidden');
-}
-
-function closeAccessibility() {
-    if (!accessibilityOverlay) return;
-    accessibilityOverlay.classList.add('hidden');
 }
 
 function applyColorblindMode(mode) {
