@@ -253,6 +253,7 @@ L.Control.ElectionSelector = L.Control.extend({
             option.value = mode.value;
             option.textContent = mode.label;
         });
+        visionModeSelector.value = this._colorblindMode;
 
         L.DomEvent.on(visionModeSelector, 'change', (e) => {
             this._colorblindMode = e.target.value;

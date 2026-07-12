@@ -145,6 +145,10 @@ Canonical query parameters used by the app:
 - `election`: Tilde-delimited hierarchy path in this format: `{electionid}~{snapshotid}~{layerid}`
 - `datasource`: Alternate index host or full index URL
 - `advanced`: Boolean flag to show advanced dataset controls
+- `contest`: Optional contest selector value applied after dataset load
+- `view`: Optional view selector value applied after dataset load
+- `vision`: Optional vision mode value: `normal`, `highContrast`, or `colorblind`
+- `opacity`: Optional overlay opacity value from `0` to `100`
 
 Hierarchy behavior:
 
@@ -158,6 +162,14 @@ Examples:
 - `?election=2026-06-02-primary~2026-06-27T01-01-58Z-final`
 - `?election=2026-06-02-primary~2026-06-27T01-01-58Z-final~precincts`
 - `?datasource=localhost:8080&advanced=true`
+- `?election=2026-06-02-primary~final~precincts&contest=0&view=w&vision=colorblind&opacity=70`
+
+Selector param behavior:
+
+- `contest`, `view`, `vision`, and `opacity` are optional deep-link inputs.
+- These values are read on initial load and browser navigation.
+- Changing contest, view, vision mode, or opacity in the UI does not rewrite the URL.
+- When election, snapshot, or layer changes rewrite the hierarchy param, existing selector params are preserved.
 
 Compatibility policy:
 

@@ -36,9 +36,14 @@ const electionBrowserStatus = document.getElementById('election-browser-status')
 const queryParams = {
     election: 'election',
     datasource: 'datasource',
-    advanced: 'advanced'
+    advanced: 'advanced',
+    contest: 'contest',
+    view: 'view',
+    vision: 'vision',
+    opacity: 'opacity'
 };
 const hierarchySeparator = '~';
+const supportedVisionModes = new Set(['normal', 'highContrast', 'colorblind']);
 
 let electionsIndex = null;
 let electionsIndexSourceUrl = null;
@@ -412,6 +417,7 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             pendingSnapshotId = selectedSnapshot.id;
             await loadElectionDataset(selectedSnapshot, {
                 selectedGeographyId: getLayerIdFromQuery(),
+                selectorStateOverride: getSelectorStateFromQuery(),
                 updateUrl: true,
                 closeBrowserOnSuccess: false
             });
@@ -443,6 +449,7 @@ window.addEventListener('popstate', async () => {
     if (!window.availableElections?.length || isElectionLoadInProgress) return;
 
     const requestedLayerId = getLayerIdFromQuery();
+    const selectorStateOverride = getSelectorStateFromQuery();
     const selectedSnapshot = getSelectedElection(
         window.availableElections,
         electionsIndex?.defaultElectionId,
@@ -452,10 +459,14 @@ window.addEventListener('popstate', async () => {
     if (!selectedSnapshot) return;
 
     const selectedGeography = getSelectedGeography(selectedSnapshot, requestedLayerId);
-    if (selectedSnapshot.id === activeSnapshotId && idsEqual(selectedGeography?.id, activeGeographyId)) return;
+    if (selectedSnapshot.id === activeSnapshotId && idsEqual(selectedGeography?.id, activeGeographyId)) {
+        buildElectionSelector(selectedSnapshot, getSnapshotGeographies(selectedSnapshot), selectedGeography, selectorStateOverride);
+        return;
+    }
 
     await loadElectionDataset(selectedSnapshot, {
         selectedGeographyId: requestedLayerId,
+        selectorStateOverride,
         updateUrl: false,
         closeBrowserOnSuccess: false
     });
@@ -464,6 +475,7 @@ window.addEventListener('popstate', async () => {
 async function loadElectionDataset(snapshot, options = {}) {
     const {
         selectedGeographyId = null,
+        selectorStateOverride = null,
         updateUrl = true,
         closeBrowserOnSuccess = true
     } = options;
@@ -515,7 +527,7 @@ async function loadElectionDataset(snapshot, options = {}) {
         applyActiveElectionTitle(snapshot);
 
         buildPrecinctLayer(nextPrecincts || { type: 'FeatureCollection', features: [] }, addData);
-        buildElectionSelector(snapshot, availableGeographies, selectedGeography);
+        buildElectionSelector(snapshot, availableGeographies, selectedGeography, selectorStateOverride);
         renderElectionBrowserList();
 
         if (updateUrl) setSelectionQueryParams(snapshot);
@@ -718,13 +730,14 @@ function buildPrecinctLayer(precincts, addData) {
     requestAnimationFrame(attachTieDefsRoot);
 }
 
-function buildElectionSelector(snapshot = getActiveSnapshot(), geographies = getSnapshotGeographies(snapshot), selectedGeography = getSelectedGeography(snapshot, activeGeographyId)) {
-    const selectorUiState = window.selector && typeof window.selector.getUiState === 'function'
+function buildElectionSelector(snapshot = getActiveSnapshot(), geographies = getSnapshotGeographies(snapshot), selectedGeography = getSelectedGeography(snapshot, activeGeographyId), selectorStateOverride = null) {
+    const existingSelectorUiState = window.selector && typeof window.selector.getUiState === 'function'
         ? window.selector.getUiState()
         : null;
     const legendUiState = window.legend && typeof window.legend.getUiState === 'function'
         ? window.legend.getUiState()
         : null;
+    const selectorUiState = selectorStateOverride || existingSelectorUiState;
 
     if (window.selector) {
         map.removeControl(window.selector);
@@ -1220,6 +1233,41 @@ function getLayerIdFromQuery() {
 
 function getDataSourceFromQuery() {
     return getQueryParam(queryParams.datasource);
+}
+
+function getContestFromQuery() {
+    const value = getQueryParam(queryParams.contest);
+    return value === null || value === '' ? null : `${value}`;
+}
+
+function getViewFromQuery() {
+    const value = getQueryParam(queryParams.view);
+    return value === null || value === '' ? null : `${value}`;
+}
+
+function getVisionModeFromQuery() {
+    const value = getQueryParam(queryParams.vision);
+    if (!value) return null;
+    const normalized = `${value}`.trim();
+    return supportedVisionModes.has(normalized) ? normalized : null;
+}
+
+function getOpacityFromQuery() {
+    const value = getQueryParam(queryParams.opacity);
+    if (value === null || value === '') return null;
+
+    const parsed = Number.parseInt(`${value}`, 10);
+    if (!Number.isFinite(parsed)) return null;
+    return Math.min(100, Math.max(0, parsed));
+}
+
+function getSelectorStateFromQuery() {
+    return {
+        selectedContestValue: getContestFromQuery(),
+        selectedChoiceValue: getViewFromQuery(),
+        colorblindMode: getVisionModeFromQuery(),
+        opacity: getOpacityFromQuery()
+    };
 }
 
 function hasUrlScheme(value) {
