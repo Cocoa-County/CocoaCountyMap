@@ -8,15 +8,18 @@ For setup and configuration, see [README.md](README.md).
 ## File Roles In App Flow
 
 1. The app loads `elections.index.json` from configured URLs.
-2. The selected election entry points to `dataUrl` and `precinctsUrl`.
+2. The selected election entry points to `dataUrl` and a GIS file URL.
 3. `dataUrl` resolves to the election results file (`data.json` in this specification).
-4. `precinctsUrl` resolves to precinct GeoJSON, commonly named `precincts.gis.json`.
+4. GIS URL can be published as `areasUrl` (core contract) or `precinctsUrl` (legacy alias), and commonly resolves to `precincts.gis.json`.
+5. Join and label fields can be published as `areaIdField` and `areaLabelField` (core contract), or `precinctIdField` and `precinctLabelField` (legacy aliases).
 
 ## data.json
 
 ### Description
 
 `data.json` stores contest definitions, choices, and precinct-level election results.
+
+The app treats `contests[].areas` as canonical and also accepts `precincts`, `units`, `geographies`, or `resultsByArea` for compatibility.
 
 ### Specification
 
@@ -162,12 +165,12 @@ If `winner` is an array, the precinct result is treated as a tie and the popup a
 
 Required integration rule:
 
-- Each feature must include the field named by `precinctIdField` in `elections.index.json`.
-- Values in that field must match keys in each contest's `precincts` object in `data.json`.
+- Each feature must include the field named by `areaIdField` in `elections.index.json` (or `precinctIdField` alias).
+- Values in that field must match keys in each contest's `areas` object in `data.json` (or accepted aliases).
 
 Common optional fields:
 
-- Label field named by `precinctLabelField`
+- Label field named by `areaLabelField` (or `precinctLabelField` alias)
 - Additional properties used for popup content or filtering
 
 ### Minimal Example
@@ -193,8 +196,8 @@ Common optional fields:
 
 ## Troubleshooting
 
-- If precincts render but have no results, check that `precinctIdField` values match `data.json` precinct keys exactly.
-- If popup titles are blank, confirm `precinctLabelField` exists in GeoJSON feature properties.
+- If precincts render but have no results, check that `areaIdField`/`precinctIdField` values match `data.json` area keys exactly.
+- If popup titles are blank, confirm `areaLabelField`/`precinctLabelField` exists in GeoJSON feature properties.
 - If contest totals look wrong, verify `results` array order matches `choices` array order for each contest.
 
 ## Credit

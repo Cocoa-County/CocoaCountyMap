@@ -33,7 +33,12 @@ const loadElectionDatasetBtn = document.getElementById('load-election-dataset');
 const electionBrowserTitle = document.getElementById('election-browser-title');
 const electionBrowserList = document.getElementById('election-browser-list');
 const electionBrowserStatus = document.getElementById('election-browser-status');
-const advancedModeQueryParam = 'advanced';
+const queryParams = {
+    election: 'election',
+    datasource: 'datasource',
+    advanced: 'advanced'
+};
+const hierarchySeparator = '~';
 
 let electionsIndex = null;
 let electionsIndexSourceUrl = null;
@@ -43,10 +48,12 @@ let data = { contests: [] };
 let precinctsLayer = null;
 let isElectionLoadInProgress = false;
 let activeSnapshotId = null;
+let activeGeographyId = null;
 let pendingSnapshotId = null;
 let electionLoadToken = 0;
 const expandedElectionGroups = new Set();
 let hasAutoExpandedActiveGroup = false;
+const snapshotModeWarnings = new Set();
 
 window.availableElections = [];
 
@@ -379,9 +386,13 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 }).addTo(map);
 
 (async () => {
+    const queryDataSource = getDataSourceFromQuery();
+    const queryDataSourceIndexUrl = normalizeDataSourceIndexUrl(queryDataSource);
+    const startupIndexFiles = queryDataSourceIndexUrl ? [queryDataSourceIndexUrl] : electionsIndexFiles;
+
     try {
         setIntroLoadingState(true, 'Loading election index...');
-        const loadedIndex = await loadIndexWithFallback(electionsIndexFiles);
+        const loadedIndex = await loadIndexWithFallback(startupIndexFiles);
         electionsIndex = loadedIndex?.data || null;
         electionsIndexSourceUrl = loadedIndex?.sourceUrl || null;
         electionRecordsById = buildElectionRecordMap(electionsIndex);
@@ -397,7 +408,11 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         );
         if (selectedSnapshot) {
             pendingSnapshotId = selectedSnapshot.id;
-            await loadElectionDataset(selectedSnapshot, { updateUrl: true, closeBrowserOnSuccess: false });
+            await loadElectionDataset(selectedSnapshot, {
+                selectedGeographyId: getLayerIdFromQuery(),
+                updateUrl: true,
+                closeBrowserOnSuccess: false
+            });
         } else {
             applyActiveElectionTitle(null);
             setElectionBrowserStatus('No loadable election datasets were found in the configured index.');
@@ -407,7 +422,11 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     } catch (error) {
         console.error('Election data load failed:', error);
         applyActiveElectionTitle(null);
-        setElectionBrowserStatus('Unable to load election index. Check your configured index URL and try again.');
+        if (queryDataSource) {
+            setElectionBrowserStatus('Unable to load election index from the datasource query parameter. Check the datasource value and try again.');
+        } else {
+            setElectionBrowserStatus('Unable to load election index. Check your configured index URL and try again.');
+        }
         buildPrecinctLayer({ type: 'FeatureCollection', features: [] });
         buildElectionSelector();
     }
@@ -421,19 +440,28 @@ window.addEventListener('popstate', async () => {
 
     if (!window.availableElections?.length || isElectionLoadInProgress) return;
 
+    const requestedLayerId = getLayerIdFromQuery();
     const selectedSnapshot = getSelectedElection(
         window.availableElections,
         electionsIndex?.defaultElectionId,
         getElectionIdFromQuery(),
         getSnapshotIdFromQuery()
     );
-    if (!selectedSnapshot || selectedSnapshot.id === activeSnapshotId) return;
+    if (!selectedSnapshot) return;
 
-    await loadElectionDataset(selectedSnapshot, { updateUrl: false, closeBrowserOnSuccess: false });
+    const selectedGeography = getSelectedGeography(selectedSnapshot, requestedLayerId);
+    if (selectedSnapshot.id === activeSnapshotId && idsEqual(selectedGeography?.id, activeGeographyId)) return;
+
+    await loadElectionDataset(selectedSnapshot, {
+        selectedGeographyId: requestedLayerId,
+        updateUrl: false,
+        closeBrowserOnSuccess: false
+    });
 });
 
 async function loadElectionDataset(snapshot, options = {}) {
     const {
+        selectedGeographyId = null,
         updateUrl = true,
         closeBrowserOnSuccess = true
     } = options;
@@ -441,8 +469,10 @@ async function loadElectionDataset(snapshot, options = {}) {
     if (!snapshot || !electionsIndexSourceUrl) return;
     if (isElectionLoadInProgress) return;
 
-    const electionDataFile = resolveIndexPath(snapshot.dataUrl, electionsIndexSourceUrl);
-    const precinctsFile = resolveIndexPath(snapshot.precinctsUrl, electionsIndexSourceUrl);
+    const availableGeographies = getSnapshotGeographies(snapshot);
+    const selectedGeography = getSelectedGeography(snapshot, selectedGeographyId || activeGeographyId);
+    const electionDataFile = resolveIndexPath(selectedGeography?.dataUrl, electionsIndexSourceUrl);
+    const precinctsFile = resolveIndexPath(selectedGeography?.precinctsUrl, electionsIndexSourceUrl);
 
     if (!electionDataFile || !precinctsFile) {
         setElectionBrowserStatus('Selected dataset is missing required file URLs.');
@@ -464,17 +494,26 @@ async function loadElectionDataset(snapshot, options = {}) {
 
         if (token !== electionLoadToken) return;
 
-        data = nextData || { contests: [] };
+        data = normalizeElectionDataShape(nextData);
         contests = Array.isArray(data?.contests) ? data.contests : [];
-        precinctIDField = snapshot.precinctIdField || precinctIDField;
-        precinctLabelField = snapshot.precinctLabelField || precinctLabelField;
-        grouped = snapshot.grouped ?? grouped;
+        precinctIDField = selectedGeography?.precinctIdField
+            || selectedGeography?.areaIdField
+            || snapshot.precinctIdField
+            || snapshot.areaIdField
+            || precinctIDField;
+        precinctLabelField = selectedGeography?.precinctLabelField
+            || selectedGeography?.areaLabelField
+            || snapshot.precinctLabelField
+            || snapshot.areaLabelField
+            || precinctLabelField;
+        grouped = selectedGeography?.grouped ?? snapshot.grouped ?? grouped;
         activeSnapshotId = snapshot.id || null;
+        activeGeographyId = selectedGeography?.id || null;
         pendingSnapshotId = activeSnapshotId;
         applyActiveElectionTitle(snapshot);
 
         buildPrecinctLayer(nextPrecincts || { type: 'FeatureCollection', features: [] }, addData);
-        buildElectionSelector();
+        buildElectionSelector(snapshot, availableGeographies, selectedGeography);
         renderElectionBrowserList();
 
         if (updateUrl) setSelectionQueryParams(snapshot);
@@ -677,7 +716,7 @@ function buildPrecinctLayer(precincts, addData) {
     requestAnimationFrame(attachTieDefsRoot);
 }
 
-function buildElectionSelector() {
+function buildElectionSelector(snapshot = getActiveSnapshot(), geographies = getSnapshotGeographies(snapshot), selectedGeography = getSelectedGeography(snapshot, activeGeographyId)) {
     if (window.selector) {
         map.removeControl(window.selector);
         window.selector = null;
@@ -688,7 +727,19 @@ function buildElectionSelector() {
     }
 
     if (contests.length) {
-        window.selector = L.control.ElectionSelector(pageTitle, precinctsLayer, contests, precinctIDField).addTo(map);
+        window.selector = L.control.ElectionSelector(pageTitle, precinctsLayer, contests, precinctIDField, {
+            geographies,
+            selectedGeographyId: selectedGeography?.id || activeGeographyId,
+            onGeographyChange: async geographyId => {
+                const activeSnapshot = getActiveSnapshot();
+                if (!activeSnapshot || isElectionLoadInProgress) return;
+                await loadElectionDataset(activeSnapshot, {
+                    selectedGeographyId: geographyId,
+                    updateUrl: true,
+                    closeBrowserOnSuccess: false
+                });
+            }
+        }).addTo(map);
         window.legend = L.control.LegendPanel(window.selector).addTo(map);
         window.selector.setLegendControl(window.legend);
 
@@ -776,6 +827,12 @@ function renderElectionBrowserList() {
         const preferredSnapshot = getPreferredSnapshot(sortedSnapshots);
         const hasMultipleSnapshots = sortedSnapshots.length > 1;
         const hasActiveSnapshot = sortedSnapshots.some(s => s.id === activeSnapshotId);
+        const usesSnapshotLabel = sortedSnapshots.some(snapshot => getSnapshotTypeTags(snapshot).length
+            || snapshot.resultsTimestamp
+            || snapshot.resultstimestamp
+            || snapshot.folder);
+        const itemLabel = usesSnapshotLabel ? 'snapshot' : 'dataset';
+        const itemLabelPlural = usesSnapshotLabel ? 'snapshots' : 'datasets';
 
         if (hasActiveSnapshot && !hasAutoExpandedActiveGroup) {
             setExpandedElectionGroup(group.id);
@@ -800,7 +857,7 @@ function renderElectionBrowserList() {
         const electionMeta = document.createElement('span');
         electionMeta.className = 'election-browser-item-meta';
         const electionMetaParts = [
-            hasMultipleSnapshots ? `${sortedSnapshots.length} snapshots` : '1 snapshot',
+            hasMultipleSnapshots ? `${sortedSnapshots.length} ${itemLabelPlural}` : `1 ${itemLabel}`,
             preferredSnapshot?.date,
             preferredSnapshot?.county,
             preferredSnapshot?.state
@@ -824,8 +881,8 @@ function renderElectionBrowserList() {
         const accordionExpanded = expandedElectionGroups.has(group.id);
         accordionButton.setAttribute('aria-expanded', accordionExpanded ? 'true' : 'false');
         accordionButton.textContent = hasMultipleSnapshots
-            ? `Election Snapshots (${sortedSnapshots.length})`
-            : 'Election Snapshots';
+            ? `Election ${usesSnapshotLabel ? 'Snapshots' : 'Datasets'} (${sortedSnapshots.length})`
+            : `Election ${usesSnapshotLabel ? 'Snapshots' : 'Datasets'}`;
         accordionButton.addEventListener('click', () => {
             toggleExpandedElectionGroup(group.id);
 
@@ -1075,8 +1132,8 @@ function parseBooleanQueryValue(value) {
 
 function shouldShowLoadDatasetButtonFromQuery() {
     const params = new URLSearchParams(window.location.search);
-    if (!params.has(advancedModeQueryParam)) return false;
-    return parseBooleanQueryValue(params.get(advancedModeQueryParam));
+    if (!params.has(queryParams.advanced)) return false;
+    return parseBooleanQueryValue(params.get(queryParams.advanced));
 }
 
 function applyAdvancedModeUiVisibilityFromQuery() {
@@ -1101,58 +1158,136 @@ function applyAdvancedModeUiVisibilityFromQuery() {
     updateLoadDatasetButtonState();
 }
 
-function getQueryParamCaseInsensitive(paramName) {
+function getQueryParam(paramName) {
     const params = new URLSearchParams(window.location.search);
-    for (const [key, value] of params.entries()) {
-        if (`${key}`.toLowerCase() === `${paramName}`.toLowerCase()) {
-            return value;
-        }
-    }
-
-    return null;
+    return params.get(paramName);
 }
 
-function hasQueryParamCaseInsensitive(paramName) {
-    const params = new URLSearchParams(window.location.search);
-    for (const key of params.keys()) {
-        if (`${key}`.toLowerCase() === `${paramName}`.toLowerCase()) {
-            return true;
-        }
+function decodeHierarchySegment(segment) {
+    if (!segment) return null;
+    try {
+        return decodeURIComponent(segment);
+    } catch {
+        return segment;
     }
+}
 
-    return false;
+function encodeHierarchySegment(segment) {
+    if (segment === null || segment === undefined || segment === '') return null;
+    return encodeURIComponent(`${segment}`);
+}
+
+function getHierarchySelectionFromQuery() {
+    const raw = getQueryParam(queryParams.election);
+    if (!raw) return {
+        electionId: null,
+        snapshotId: null,
+        layerId: null
+    };
+
+    const segments = `${raw}`
+        .split(hierarchySeparator)
+        .map(part => part.trim())
+        .filter(Boolean)
+        .map(decodeHierarchySegment);
+
+    return {
+        electionId: segments[0] || null,
+        snapshotId: segments[1] || null,
+        layerId: segments[2] || null
+    };
 }
 
 function getElectionIdFromQuery() {
-    return getQueryParamCaseInsensitive('electionid') || getQueryParamCaseInsensitive('electionId');
+    return getHierarchySelectionFromQuery().electionId;
 }
 
 function getSnapshotIdFromQuery() {
-    return getQueryParamCaseInsensitive('snapshotid') || getQueryParamCaseInsensitive('snapshotId');
+    return getHierarchySelectionFromQuery().snapshotId;
+}
+
+function getLayerIdFromQuery() {
+    return getHierarchySelectionFromQuery().layerId;
+}
+
+function getDataSourceFromQuery() {
+    return getQueryParam(queryParams.datasource);
+}
+
+function hasUrlScheme(value) {
+    return /^[a-z][a-z\d+\-.]*:\/\//i.test(value);
+}
+
+function isLocalDataSourceHost(value) {
+    const lower = `${value}`.toLowerCase();
+    return lower.startsWith('localhost') || lower.startsWith('127.0.0.1');
+}
+
+function applyDataSourceDefaultScheme(value) {
+    const trimmed = `${value || ''}`.trim();
+    if (!trimmed) return null;
+    if (hasUrlScheme(trimmed)) return trimmed;
+    if (trimmed.startsWith('//')) return `${window.location.protocol}${trimmed}`;
+
+    const scheme = isLocalDataSourceHost(trimmed) ? 'http://' : 'https://';
+    return `${scheme}${trimmed}`;
+}
+
+function normalizeDataSourceIndexUrl(dataSourceRaw) {
+    const dataSourceWithScheme = applyDataSourceDefaultScheme(dataSourceRaw);
+    if (!dataSourceWithScheme) return null;
+
+    let parsedDataSourceUrl;
+    try {
+        parsedDataSourceUrl = new URL(dataSourceWithScheme);
+    } catch {
+        return null;
+    }
+
+    const pathname = parsedDataSourceUrl.pathname || '/';
+    const trimmedPath = pathname.replace(/\/+$/, '');
+
+    if (!trimmedPath.toLowerCase().endsWith('/elections.index.json')) {
+        const normalizedBasePath = trimmedPath && trimmedPath !== '/' ? trimmedPath : '';
+        parsedDataSourceUrl.pathname = `${normalizedBasePath}/elections.index.json`;
+    }
+
+    return parsedDataSourceUrl.toString();
 }
 
 function setSelectionQueryParams(snapshot, options = {}) {
     const {
-        includeSnapshotId = null
+        includeSnapshotId = true,
+        includeLayerId = true
     } = options;
 
     const url = new URL(window.location.href);
 
-    const electionId = snapshot?.electionGroupId || snapshot?.electionId || null;
+    const electionId = snapshot?.selectionElectionId || snapshot?.electionGroupId || snapshot?.electionId || snapshot?.id || null;
     const snapshotId = snapshot?.id || snapshot?.snapshotId || null;
-    const hasSnapshotIdParamInUrl = hasQueryParamCaseInsensitive('snapshotid') || hasQueryParamCaseInsensitive('snapshotId');
-    const shouldIncludeSnapshotId = includeSnapshotId === null
-        ? hasSnapshotIdParamInUrl
-        : !!includeSnapshotId;
+    const geographyId = getSnapshotGeographies(snapshot).length > 1 ? activeGeographyId : null;
+    const shouldIncludeSnapshotId = !!includeSnapshotId;
+    const shouldIncludeLayerId = !!includeLayerId;
 
-    if (electionId) url.searchParams.set('electionid', electionId);
-    else url.searchParams.delete('electionid');
+    if (!electionId) {
+        url.searchParams.delete(queryParams.election);
+        window.history.replaceState({}, '', url);
+        return;
+    }
 
-    if (shouldIncludeSnapshotId && snapshotId) url.searchParams.set('snapshotid', snapshotId);
-    else url.searchParams.delete('snapshotid');
+    const hierarchySegments = [
+        encodeHierarchySegment(electionId)
+    ];
 
-    url.searchParams.delete('electionId');
-    url.searchParams.delete('snapshotId');
+    if (shouldIncludeSnapshotId && snapshotId) {
+        hierarchySegments.push(encodeHierarchySegment(snapshotId));
+
+        if (shouldIncludeLayerId && geographyId) {
+            hierarchySegments.push(encodeHierarchySegment(geographyId));
+        }
+    }
+
+    url.searchParams.set(queryParams.election, hierarchySegments.filter(Boolean).join(hierarchySeparator));
 
     window.history.replaceState({}, '', url);
 }
@@ -1175,6 +1310,27 @@ function withCacheBust(url) {
     } catch {
         return url;
     }
+}
+
+function normalizeElectionDataShape(electionData) {
+    if (!electionData || typeof electionData !== 'object') return { contests: [] };
+
+    const contests = Array.isArray(electionData.contests)
+        ? electionData.contests.map(contest => ({
+            ...contest,
+            precincts: contest?.precincts
+                || contest?.areas
+                || contest?.units
+                || contest?.geographies
+                || contest?.resultsByArea
+                || {}
+        }))
+        : [];
+
+    return {
+        ...electionData,
+        contests
+    };
 }
 
 async function loadJson(file) {
@@ -1215,6 +1371,117 @@ function resolveIndexPath(pathOrUrl, indexSourceUrl) {
     }
 }
 
+function getEntryDataUrl(entry) {
+    return entry?.dataUrl || entry?.electionDataUrl || null;
+}
+
+function getEntryAreasUrl(entry) {
+    return entry?.areasUrl
+        || entry?.gisUrl
+        || entry?.precinctsUrl
+        || entry?.precinctDataUrl
+        || entry?.precinctsDataUrl
+        || null;
+}
+
+function getEntryAreaIdField(entry) {
+    return entry?.areaIdField || entry?.joinField || entry?.precinctIdField || null;
+}
+
+function getEntryAreaLabelField(entry) {
+    return entry?.areaLabelField || entry?.labelField || entry?.precinctLabelField || null;
+}
+
+function getEntryLayers(entry) {
+    if (Array.isArray(entry?.geographies)) return entry.geographies;
+    if (Array.isArray(entry?.layers)) return entry.layers;
+    return [];
+}
+
+function hasAnyLegacyAreaField(entry) {
+    return !!(getEntryDataUrl(entry) || getEntryAreasUrl(entry) || getEntryAreaIdField(entry) || getEntryAreaLabelField(entry));
+}
+
+function hasCompleteLegacyAreaMode(entry) {
+    return !!(getEntryDataUrl(entry) && getEntryAreasUrl(entry) && getEntryAreaIdField(entry) && getEntryAreaLabelField(entry));
+}
+
+function warnSnapshotModeIssue(snapshot, message, context = null) {
+    const snapshotId = snapshot?.id || snapshot?.snapshotId || snapshot?.folder || 'unknown';
+    const warningKey = `${context || 'snapshot'}:${snapshotId}:${message}`;
+    if (snapshotModeWarnings.has(warningKey)) return;
+    snapshotModeWarnings.add(warningKey);
+    console.warn(`[ElectionSnapshotMode] ${message}`, {
+        snapshotId,
+        context,
+        snapshot
+    });
+}
+
+function getSnapshotEffectiveMode(snapshot, context = null) {
+    const hasLayers = getEntryLayers(snapshot).length > 0;
+    const hasLegacyFields = hasAnyLegacyAreaField(snapshot);
+    const hasLegacyMode = hasCompleteLegacyAreaMode(snapshot);
+
+    if (hasLayers && hasLegacyFields) {
+        warnSnapshotModeIssue(snapshot, 'Snapshot declares both layer and legacy area fields; layer mode will be used.', context);
+    }
+
+    if (hasLayers) return 'layers';
+    if (hasLegacyMode) return 'legacy';
+
+    if (hasLegacyFields) {
+        warnSnapshotModeIssue(snapshot, 'Snapshot has partial legacy area fields and is missing required fields; falling back to inherited/default behavior.', context);
+    }
+
+    return 'inherited';
+}
+
+function getSnapshotGeographies(snapshot) {
+    if (!snapshot) return [];
+
+    const geographies = getEntryLayers(snapshot);
+    const normalized = geographies.map((geography, geographyIndex) => ({
+        ...geography,
+        id: geography?.id || `geography-${geographyIndex + 1}`,
+        label: geography?.label || geography?.name || geography?.type || `Layer ${geographyIndex + 1}`,
+        dataUrl: getEntryDataUrl(geography) || getEntryDataUrl(snapshot) || null,
+        precinctsUrl: getEntryAreasUrl(geography) || getEntryAreasUrl(snapshot) || null,
+        precinctIdField: getEntryAreaIdField(geography) || getEntryAreaIdField(snapshot) || null,
+        precinctLabelField: getEntryAreaLabelField(geography) || getEntryAreaLabelField(snapshot) || null,
+        grouped: geography?.grouped ?? snapshot.grouped
+    })).filter(geography => geography.dataUrl && geography.precinctsUrl);
+
+    if (normalized.length) return normalized;
+
+    const fallbackDataUrl = getEntryDataUrl(snapshot);
+    const fallbackAreasUrl = getEntryAreasUrl(snapshot);
+
+    if (!fallbackDataUrl || !fallbackAreasUrl) return [];
+
+    return [{
+        id: 'default',
+        label: snapshot.label || snapshot.title || 'Default Layer',
+        dataUrl: fallbackDataUrl,
+        precinctsUrl: fallbackAreasUrl,
+        precinctIdField: getEntryAreaIdField(snapshot),
+        precinctLabelField: getEntryAreaLabelField(snapshot),
+        grouped: snapshot.grouped
+    }];
+}
+
+function getSelectedGeography(snapshot, requestedGeographyId) {
+    const geographies = getSnapshotGeographies(snapshot);
+    if (!geographies.length) return null;
+
+    if (requestedGeographyId) {
+        const requested = geographies.find(geography => idsEqual(geography.id, requestedGeographyId));
+        if (requested) return requested;
+    }
+
+    return geographies[0];
+}
+
 function idsEqual(left, right) {
     if (left === null || left === undefined || right === null || right === undefined) return false;
     return `${left}`.toLowerCase() === `${right}`.toLowerCase();
@@ -1229,6 +1496,9 @@ function getSelectedElection(snapshotDatasets, defaultElectionId, requestedElect
     }
 
     if (requestedElectionId) {
+        const requestedElection = snapshotDatasets.find(s => idsEqual(s.id, requestedElectionId) || idsEqual(s.snapshotId, requestedElectionId));
+        if (requestedElection) return requestedElection;
+
         let requestedElectionSnapshots = snapshotDatasets.filter(s => idsEqual(s.electionGroupId, requestedElectionId) && isLoadableSnapshot(s));
         if (requestedElectionSnapshots.length) return getPreferredSnapshot(requestedElectionSnapshots);
 
@@ -1278,16 +1548,46 @@ function normalizeElectionSnapshots(electionEntries) {
     let flattened = [];
 
     electionEntries.forEach((election, electionIndex) => {
-        const electionGroupId = election.electionId || election.id || `election-${electionIndex + 1}`;
+        const electionId = election.id || election.electionId || `election-${electionIndex + 1}`;
+        const electionGroupId = election.electionGroupId || election.electionId || election.id || `election-${electionIndex + 1}`;
         const electionGroupLabel = election.electionLabel || election.label || electionGroupId;
         const snapshots = Array.isArray(election.snapshots) && election.snapshots.length
             ? election.snapshots
             : [];
 
+        if (!snapshots.length && isLoadableSnapshot(election)) {
+            const electionRecordTitle = getElectionRecordTitleFromElection(election);
+            const electionRecordSubtitle = getElectionRecordSubtitleFromElection(election);
+
+            flattened.push({
+                ...election,
+                id: electionId,
+                snapshotId: electionId,
+                snapshotLabel: getSnapshotDisplayTitle(election, electionGroupLabel),
+                electionRecordTitle,
+                electionRecordSubtitle,
+                electionGroupId,
+                electionGroupLabel,
+                selectionElectionId: electionId,
+                geographies: getEntryLayers(election),
+                dataUrl: getEntryDataUrl(election),
+                precinctsUrl: getEntryAreasUrl(election),
+                precinctIdField: getEntryAreaIdField(election),
+                precinctLabelField: getEntryAreaLabelField(election),
+                grouped: election.grouped,
+                commit: election.commit
+            });
+
+            return;
+        }
+
         snapshots.forEach((snapshot, snapshotIndex) => {
             const snapshotId = snapshot.id || snapshot.snapshotId || snapshot.folder || `${electionGroupId}-snapshot-${snapshotIndex + 1}`;
             const electionRecordTitle = getElectionRecordTitleFromElection(election);
             const electionRecordSubtitle = getElectionRecordSubtitleFromElection(election);
+            const mode = getSnapshotEffectiveMode(snapshot, electionGroupId);
+            const usesSnapshotLayers = mode === 'layers';
+            const usesSnapshotLegacy = mode === 'legacy';
             flattened.push({
                 ...election,
                 ...snapshot,
@@ -1298,10 +1598,34 @@ function normalizeElectionSnapshots(electionEntries) {
                 electionRecordSubtitle,
                 electionGroupId,
                 electionGroupLabel,
-                dataUrl: snapshot.dataUrl || snapshot.electionDataUrl || election.dataUrl,
-                precinctsUrl: snapshot.precinctsUrl || snapshot.precinctDataUrl || snapshot.precinctsDataUrl || election.precinctsUrl,
-                precinctIdField: snapshot.precinctIdField || election.precinctIdField,
-                precinctLabelField: snapshot.precinctLabelField || election.precinctLabelField,
+                selectionElectionId: electionGroupId,
+                geographies: usesSnapshotLayers
+                    ? getEntryLayers(snapshot)
+                    : usesSnapshotLegacy
+                        ? []
+                        : getEntryLayers(snapshot).length
+                            ? getEntryLayers(snapshot)
+                            : getEntryLayers(election),
+                dataUrl: usesSnapshotLayers
+                    ? getEntryDataUrl(snapshot)
+                    : usesSnapshotLegacy
+                        ? getEntryDataUrl(snapshot)
+                        : getEntryDataUrl(snapshot) || getEntryDataUrl(election),
+                precinctsUrl: usesSnapshotLayers
+                    ? getEntryAreasUrl(snapshot)
+                    : usesSnapshotLegacy
+                        ? getEntryAreasUrl(snapshot)
+                        : getEntryAreasUrl(snapshot) || getEntryAreasUrl(election),
+                precinctIdField: usesSnapshotLayers
+                    ? getEntryAreaIdField(snapshot)
+                    : usesSnapshotLegacy
+                        ? getEntryAreaIdField(snapshot)
+                        : getEntryAreaIdField(snapshot) || getEntryAreaIdField(election),
+                precinctLabelField: usesSnapshotLayers
+                    ? getEntryAreaLabelField(snapshot)
+                    : usesSnapshotLegacy
+                        ? getEntryAreaLabelField(snapshot)
+                        : getEntryAreaLabelField(snapshot) || getEntryAreaLabelField(election),
                 grouped: snapshot.grouped ?? election.grouped,
                 commit: snapshot.commit || election.commit
             });
@@ -1323,6 +1647,9 @@ function normalizeTopLevelSnapshots(index) {
         const electionGroupLabel = snapshot.electionLabel || snapshot.electionName || electionGroupId;
         const snapshotId = snapshot.id || snapshot.snapshotId || snapshot.folder || `snapshot-${snapshotIndex + 1}`;
         const parentElection = electionsById.get(electionGroupId) || null;
+        const mode = getSnapshotEffectiveMode(snapshot, electionGroupId);
+        const usesSnapshotLayers = mode === 'layers';
+        const usesSnapshotLegacy = mode === 'legacy';
 
         return {
             ...snapshot,
@@ -1333,10 +1660,42 @@ function normalizeTopLevelSnapshots(index) {
             electionRecordSubtitle: getElectionRecordSubtitleFromElection(parentElection),
             electionGroupId,
             electionGroupLabel,
-            dataUrl: snapshot.dataUrl || snapshot.electionDataUrl || buildSnapshotFileUrl(index, snapshot, 'election.json'),
-            precinctsUrl: snapshot.precinctsUrl || snapshot.precinctDataUrl || snapshot.precinctsDataUrl || buildSnapshotFileUrl(index, snapshot, 'precincts.gis.json'),
-            precinctIdField: snapshot.precinctIdField || index.precinctIdField || precinctIDField,
-            precinctLabelField: snapshot.precinctLabelField || index.precinctLabelField || precinctLabelField,
+            selectionElectionId: electionGroupId,
+            geographies: usesSnapshotLayers
+                ? getEntryLayers(snapshot)
+                : usesSnapshotLegacy
+                    ? []
+                    : getEntryLayers(parentElection),
+            dataUrl: usesSnapshotLayers
+                ? getEntryDataUrl(snapshot)
+                : usesSnapshotLegacy
+                    ? getEntryDataUrl(snapshot)
+                    : getEntryDataUrl(snapshot)
+                    || getEntryDataUrl(parentElection)
+                    || buildSnapshotFileUrl(index, snapshot, 'election.json'),
+            precinctsUrl: usesSnapshotLayers
+                ? getEntryAreasUrl(snapshot)
+                : usesSnapshotLegacy
+                    ? getEntryAreasUrl(snapshot)
+                    : getEntryAreasUrl(snapshot)
+                    || getEntryAreasUrl(parentElection)
+                    || buildSnapshotFileUrl(index, snapshot, 'precincts.gis.json'),
+            precinctIdField: usesSnapshotLayers
+                ? getEntryAreaIdField(snapshot)
+                : usesSnapshotLegacy
+                    ? getEntryAreaIdField(snapshot)
+                    : getEntryAreaIdField(snapshot)
+                    || getEntryAreaIdField(parentElection)
+                    || getEntryAreaIdField(index)
+                    || precinctIDField,
+            precinctLabelField: usesSnapshotLayers
+                ? getEntryAreaLabelField(snapshot)
+                : usesSnapshotLegacy
+                    ? getEntryAreaLabelField(snapshot)
+                    : getEntryAreaLabelField(snapshot)
+                    || getEntryAreaLabelField(parentElection)
+                    || getEntryAreaLabelField(index)
+                    || precinctLabelField,
             grouped: snapshot.grouped ?? index.grouped,
             date: snapshot.date,
             type: snapshot.type,
@@ -1434,7 +1793,14 @@ function buildSnapshotFileUrl(index, snapshot, fileName) {
 }
 
 function isLoadableSnapshot(snapshot) {
-    return !!(snapshot?.dataUrl && snapshot?.precinctsUrl);
+    if (!snapshot) return false;
+
+    const dataUrl = getEntryDataUrl(snapshot);
+    const areasUrl = getEntryAreasUrl(snapshot);
+    if (dataUrl && areasUrl) return true;
+
+    const geographies = getSnapshotGeographies(snapshot);
+    return geographies.some(geography => geography?.dataUrl && geography?.precinctsUrl);
 }
 
 function buildElectionGroups(snapshotDatasets) {

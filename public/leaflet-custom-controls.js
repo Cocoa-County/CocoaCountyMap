@@ -23,6 +23,8 @@ L.Control.ElectionSelector = L.Control.extend({
     initialize: function (title, layer, contests, precinctIDField, options) {
         this.selection = {};
 
+        options = options || {};
+
         this._title = title;
 
         this._opacity = 100;
@@ -32,6 +34,9 @@ L.Control.ElectionSelector = L.Control.extend({
         this._layer = layer;
         this._contests = contests;
         this._precinctIDField = precinctIDField;
+        this._geographies = Array.isArray(options.geographies) ? options.geographies : [];
+        this._selectedGeographyId = options.selectedGeographyId || null;
+        this._onGeographyChange = typeof options.onGeographyChange === 'function' ? options.onGeographyChange : null;
         this._tieDefsContainer = null;
         this._legendControl = null;
 
@@ -171,7 +176,28 @@ L.Control.ElectionSelector = L.Control.extend({
     _addControls: function(){
         let controls = L.DomUtil.create('div', 'election-selector-controls', this._drawer);
 
-        controls.innerHTML = '<p>Opacity:</p>';
+        let opacityLabel = L.DomUtil.create('p', 'election-selector-control-label', controls);
+        opacityLabel.textContent = 'Opacity:';
+
+        if (this._geographies.length > 1) {
+            let geographyRow = L.DomUtil.create('div', 'election-selector-inline-row', controls);
+            let geographyLabel = L.DomUtil.create('label', 'election-selector-inline-label', geographyRow);
+            geographyLabel.textContent = 'Layer:';
+            geographyLabel.htmlFor = 'geography-selector';
+
+            let geographySelector = this._geographySelector = L.DomUtil.create('select', 'election-selector-inline-select', geographyRow);
+            geographySelector.id = 'geography-selector';
+            geographySelector.setAttribute('aria-label', 'Select map layer geography');
+
+            this._geographies.forEach(geography => {
+                let option = L.DomUtil.create('option', 'election-selector-option', geographySelector);
+                option.value = geography.id;
+                option.textContent = geography.label || geography.id;
+                option.selected = geography.id === this._selectedGeographyId;
+            });
+
+            L.DomEvent.on(geographySelector, 'change', this._geographyChanged, this);
+        }
 
         let slider = L.DomUtil.create('input', 'election-selector-slider', controls);
         slider.type = "range";
@@ -236,7 +262,10 @@ L.Control.ElectionSelector = L.Control.extend({
     },
 
     _getAnalyticsContext: function() {
+        let selectedGeography = this._getSelectedGeography();
         return {
+            geography_id: selectedGeography?.id || null,
+            geography_label: selectedGeography?.label || null,
             vision_mode: this._colorblindMode,
             transparency_level: parseInt(this._opacity, 10)
         };
@@ -288,6 +317,26 @@ L.Control.ElectionSelector = L.Control.extend({
             view_id: `${choiceValue}`,
             view_label: choice?.label || `Choice ${choiceValue}`
         };
+    },
+
+    _getSelectedGeography: function() {
+        if (!Array.isArray(this._geographies) || !this._geographies.length) return null;
+
+        let geographyId = this._geographySelector ? this._geographySelector.value : this._selectedGeographyId;
+        return this._geographies.find(geography => `${geography.id}` === `${geographyId}`) || this._geographies[0] || null;
+    },
+
+    _geographyChanged: function() {
+        let geography = this._getSelectedGeography();
+        this._selectedGeographyId = geography?.id || null;
+        this._trackSelectionEvent('geography_selection', {
+            geography_id: geography?.id || null,
+            geography_label: geography?.label || null
+        });
+
+        if (this._onGeographyChange) {
+            this._onGeographyChange(this._selectedGeographyId);
+        }
     },
 
     _contestChanged: function() {
