@@ -101,6 +101,7 @@ L.Control.ElectionSelector = L.Control.extend({
     },
     onAdd: function(map) {
         let container = this._container = L.DomUtil.create('div', 'election-selector map-panel-control leaflet-bar');
+        container.setAttribute('data-tour-target', 'control-panel');
 
         let drawer = this._drawer = L.DomUtil.create('div', 'election-selector-drawer leaflet-bar', container);
         this._addTitle();
@@ -114,6 +115,7 @@ L.Control.ElectionSelector = L.Control.extend({
         this._contestSelector = L.DomUtil.create('select', 'election-selector-inline-select', contestRow);
         this._contestSelector.id = 'contest-selector';
         this._contestSelector.setAttribute('aria-label', 'Select contest');
+        this._contestSelector.setAttribute('data-tour-target', 'contest-selector');
 
         let viewRow = L.DomUtil.create('div', 'election-selector-inline-row', drawer);
         let viewLabel = L.DomUtil.create('label', 'election-selector-inline-label', viewRow);
@@ -123,6 +125,7 @@ L.Control.ElectionSelector = L.Control.extend({
         this._choiceSelector = L.DomUtil.create('select', 'election-selector-inline-select', viewRow);
         this._choiceSelector.id = 'choice-selector';
         this._choiceSelector.setAttribute('aria-label', 'Select contest view');
+        this._choiceSelector.setAttribute('data-tour-target', 'choice-selector');
 
   		L.DomEvent.disableClickPropagation(container);
   		L.DomEvent.disableScrollPropagation(container);
@@ -186,6 +189,7 @@ L.Control.ElectionSelector = L.Control.extend({
 
     _addTitle: function(){
         let pinButton = this._pinButton = createPinButton('election-selector-pin-btn');
+        pinButton.setAttribute('data-tour-target', 'control-pin');
         L.DomEvent.on(pinButton, 'click', (e) => {
             L.DomEvent.stopPropagation(e);
             this._togglePin();
@@ -217,6 +221,7 @@ L.Control.ElectionSelector = L.Control.extend({
 
         let slider = L.DomUtil.create('input', 'election-selector-slider', opacityRow);
         slider.id = 'opacity-slider';
+        slider.setAttribute('data-tour-target', 'opacity-slider');
         slider.type = "range";
         slider.min = 0;
         slider.max = 100;
@@ -235,6 +240,7 @@ L.Control.ElectionSelector = L.Control.extend({
         let visionModeSelector = L.DomUtil.create('select', 'election-selector-inline-select', visionModeRow);
         visionModeSelector.id = 'colorblind-mode-selector';
         visionModeSelector.setAttribute('aria-label', 'Select vision mode for colorblind accessibility');
+        visionModeSelector.setAttribute('data-tour-target', 'vision-mode-selector');
 
         let modes = [
             { value: 'normal', label: 'Default Colors' },
@@ -264,6 +270,7 @@ L.Control.ElectionSelector = L.Control.extend({
             let geographySelector = this._geographySelector = L.DomUtil.create('select', 'election-selector-inline-select', geographyRow);
             geographySelector.id = 'geography-selector';
             geographySelector.setAttribute('aria-label', 'Select map layer geography');
+            geographySelector.setAttribute('data-tour-target', 'layer-selector');
 
             this._geographies.forEach(geography => {
                 let option = L.DomUtil.create('option', 'election-selector-option', geographySelector);
@@ -744,6 +751,7 @@ L.Control.LegendPanel = L.Control.extend({
 
     onAdd: function(map) {
         let container = this._container = L.DomUtil.create('div', 'legend-control map-panel-control leaflet-bar');
+        container.setAttribute('data-tour-target', 'legend-panel');
         let drawer = this._drawer = L.DomUtil.create('div', 'legend-control-drawer leaflet-bar', container);
 
         this._addTitle();
@@ -785,6 +793,7 @@ L.Control.LegendPanel = L.Control.extend({
 
     _addTitle: function() {
         let pinButton = this._pinButton = createPinButton('legend-control-pin-btn');
+        pinButton.setAttribute('data-tour-target', 'legend-pin');
         L.DomEvent.on(pinButton, 'click', (e) => {
             L.DomEvent.stopPropagation(e);
             this._togglePin();

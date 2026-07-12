@@ -149,7 +149,7 @@ document.addEventListener('keydown', event => {
 });
 
 // Tour functionality
-const tourSteps = [
+const baseTourSteps = [
     {
         title: 'Welcome to the Interactive Map',
         description: 'Click on any precinct to see detailed voting results, turnout information, and registered voter counts.',
@@ -159,54 +159,63 @@ const tourSteps = [
     {
         title: 'Control Panel',
         description: 'Hover over or click this panel to access map controls. It will expand to show all available options.',
-        target: '.election-selector',
+        target: '[data-tour-target="control-panel"]',
         position: 'right'
     },
     {
         title: 'Pin Map Controls',
         description: 'Use the pin button to keep Map Controls open. Click it again to return to normal auto-close behavior.',
-        target: '.election-selector-pin-btn',
+        target: '[data-tour-target="control-pin"]',
         position: 'right'
+    },
+    {
+        title: 'Select a Layer',
+        description: 'Use this selector to switch between available map layers when the active dataset includes multiple geographies.',
+        target: '[data-tour-target="layer-selector"]',
+        position: 'right',
+        optional: true
     },
     {
         title: 'Select a Contest',
         description: 'Use this dropdown to switch between available contest views for the active dataset.',
-        target: '.election-selector-select:first-of-type',
+        target: '[data-tour-target="contest-selector"]',
         position: 'right'
     },
     {
         title: 'Choose a View',
         description: 'Select how to display results: Winner by Precinct, Contest Turnout, or individual candidate vote percentages.',
-        target: '.election-selector-select:last-of-type',
+        target: '[data-tour-target="choice-selector"]',
         position: 'right'
     },
     {
         title: 'Adjust Opacity',
         description: 'Use this slider to adjust the map overlay transparency, making it easier to see underlying geographic features.',
-        target: '.election-selector-slider',
+        target: '[data-tour-target="opacity-slider"]',
         position: 'right'
     },
     {
         title: 'Vision Mode',
         description: 'Use this selector to adjust map colors for accessibility, including High Contrast and Colorblind-Safe modes.',
-        target: '.election-selector-inline-row',
+        target: '[data-tour-target="vision-mode-selector"]',
         position: 'right'
     },
     {
         title: 'Legend Panel',
         description: 'Use this button to open the Legend panel and see the meaning of map colors for the current view.',
-        target: '.legend-control',
+        target: '[data-tour-target="legend-panel"]',
         position: 'right'
     },
     {
         title: 'Pin Legend',
         description: 'Use the Legend pin button to keep the panel open while exploring the map.',
-        target: '.legend-control-pin-btn',
+        target: '[data-tour-target="legend-pin"]',
         position: 'right'
     }
 ];
 
 let currentTourStep = 0;
+let tourStepRenderToken = 0;
+let activeTourSteps = [];
 const tourOverlay = document.getElementById('tour-overlay');
 const tourSpotlight = document.getElementById('tour-spotlight');
 const tourContent = document.getElementById('tour-content');
@@ -217,7 +226,15 @@ const tourPrevBtn = document.getElementById('tour-prev');
 const tourNextBtn = document.getElementById('tour-next');
 const tourSkipBtn = document.getElementById('tour-skip');
 
+function getActiveTourSteps() {
+    return baseTourSteps.filter(step => {
+        if (!step.optional || !step.target) return true;
+        return !!document.querySelector(step.target);
+    });
+}
+
 function startTour() {
+    activeTourSteps = getActiveTourSteps();
     currentTourStep = 0;
     window.tourActive = true;
     tourOverlay.classList.remove('hidden');
@@ -225,90 +242,104 @@ function startTour() {
 }
 
 function endTour() {
+    tourStepRenderToken++;
     window.tourActive = false;
     tourOverlay.classList.add('hidden');
     currentTourStep = 0;
+    tourSpotlight.style.display = 'none';
 
     // Close the control panel
-    if (window.selector) {
+    if (window.selector && typeof window.selector._close === 'function') {
         window.selector._close(true);
     }
-    if (window.legend) {
+    if (window.legend && typeof window.legend._close === 'function') {
         window.legend._close(true);
     }
 }
 
+function positionTourContent(stepIndex) {
+    tourContent.style.left = '50%';
+    tourContent.style.right = 'auto';
+
+    if (stepIndex === 0) {
+        tourContent.style.top = 'auto';
+        tourContent.style.bottom = '20px';
+        tourContent.style.transform = 'translateX(-50%)';
+        return;
+    }
+
+    tourContent.style.top = '20px';
+    tourContent.style.bottom = 'auto';
+    tourContent.style.transform = 'translateX(-50%)';
+}
+
+function openTourTargetPanel(targetElement) {
+    const controlPanel = targetElement.closest('.election-selector, .legend-control');
+    if (!controlPanel || !controlPanel.classList.contains('closed')) return;
+
+    if (controlPanel.classList.contains('election-selector') && window.selector && typeof window.selector._open === 'function') {
+        window.selector._open();
+        return;
+    }
+
+    if (controlPanel.classList.contains('legend-control') && window.legend && typeof window.legend._open === 'function') {
+        window.legend._open();
+        return;
+    }
+
+    controlPanel.classList.remove('closed');
+}
+
 function showTourStep(stepIndex) {
-    const step = tourSteps[stepIndex];
+    const step = activeTourSteps[stepIndex];
+    if (!step) return;
+    const renderToken = ++tourStepRenderToken;
     trackMapEvent('tour_step_view', {
         step_index: stepIndex,
         step_number: stepIndex + 1,
         step_title: step?.title || null,
         step_target: step?.target || 'none',
-        total_steps: tourSteps.length
+        total_steps: activeTourSteps.length
     });
 
     tourTitle.textContent = step.title;
     tourDescription.textContent = step.description;
-    tourProgress.textContent = `${stepIndex + 1} / ${tourSteps.length}`;
+    tourProgress.textContent = `${stepIndex + 1} / ${activeTourSteps.length}`;
 
     tourPrevBtn.disabled = stepIndex === 0;
-    tourNextBtn.textContent = stepIndex === tourSteps.length - 1 ? 'Finish' : 'Next';
+    tourNextBtn.textContent = stepIndex === activeTourSteps.length - 1 ? 'Finish' : 'Next';
+    positionTourContent(stepIndex);
 
-    if (step.target) {
-        const targetElement = document.querySelector(step.target);
-        if (targetElement) {
-            // Expand the parent control panel if targeting one of its children.
-            const controlPanel = targetElement.closest('.election-selector, .legend-control');
-            if (controlPanel && controlPanel.classList.contains('closed')) {
-                if (controlPanel.classList.contains('election-selector') && window.selector) {
-                    window.selector._open();
-                } else if (controlPanel.classList.contains('legend-control') && window.legend) {
-                    window.legend._open();
-                } else {
-                    controlPanel.classList.remove('closed');
-                }
-            }
-
-            const rect = targetElement.getBoundingClientRect();
-            const pinTargetOffset = targetElement.classList.contains('map-panel-pin-btn') ? 4 : 0;
-            tourSpotlight.style.top = `${rect.top - 5 - pinTargetOffset}px`;
-            tourSpotlight.style.left = `${rect.left - 5}px`;
-            tourSpotlight.style.width = `${rect.width + 10}px`;
-            tourSpotlight.style.height = `${rect.height + 10}px`;
-            tourSpotlight.style.display = 'block';
-
-            // Position tour content based on step
-            tourContent.style.left = '50%';
-            tourContent.style.right = 'auto';
-            if (stepIndex === 0) {
-                // Step 1: bottom of screen
-                tourContent.style.top = 'auto';
-                tourContent.style.bottom = '20px';
-                tourContent.style.transform = 'translateX(-50%)';
-            } else {
-                // Steps with targets: top of screen
-                tourContent.style.top = '20px';
-                tourContent.style.bottom = 'auto';
-                tourContent.style.transform = 'translateX(-50%)';
-            }
-        }
-    } else {
+    if (!step.target) {
         tourSpotlight.style.display = 'none';
-        tourContent.style.left = '50%';
-        tourContent.style.right = 'auto';
-        if (stepIndex === 0) {
-            // Step 1: bottom of screen
-            tourContent.style.top = 'auto';
-            tourContent.style.bottom = '20px';
-            tourContent.style.transform = 'translateX(-50%)';
-        } else {
-            // Steps with targets: top of screen
-            tourContent.style.top = '20px';
-            tourContent.style.bottom = 'auto';
-            tourContent.style.transform = 'translateX(-50%)';
-        }
+        return;
     }
+
+    const targetElement = document.querySelector(step.target);
+    if (!targetElement) {
+        console.warn(`Tour target not found for step ${stepIndex + 1}: ${step.target}`);
+        tourSpotlight.style.display = 'none';
+        return;
+    }
+
+    openTourTargetPanel(targetElement);
+
+    requestAnimationFrame(() => {
+        if (renderToken !== tourStepRenderToken || !window.tourActive) return;
+
+        const rect = targetElement.getBoundingClientRect();
+        if (!rect.width || !rect.height) {
+            tourSpotlight.style.display = 'none';
+            return;
+        }
+
+        const pinTargetOffset = targetElement.classList.contains('map-panel-pin-btn') ? 4 : 0;
+        tourSpotlight.style.top = `${rect.top - 5 - pinTargetOffset}px`;
+        tourSpotlight.style.left = `${rect.left - 5}px`;
+        tourSpotlight.style.width = `${rect.width + 10}px`;
+        tourSpotlight.style.height = `${rect.height + 10}px`;
+        tourSpotlight.style.display = 'block';
+    });
 }
 
 if (tourPrevBtn) {
@@ -322,13 +353,13 @@ if (tourPrevBtn) {
 
 if (tourNextBtn) {
     tourNextBtn.addEventListener('click', () => {
-        if (currentTourStep < tourSteps.length - 1) {
+        if (currentTourStep < activeTourSteps.length - 1) {
             currentTourStep++;
             showTourStep(currentTourStep);
         } else {
             trackMapEvent('tour_complete', {
-                completed_steps: tourSteps.length,
-                total_steps: tourSteps.length
+                completed_steps: activeTourSteps.length,
+                total_steps: activeTourSteps.length
             });
             endTour();
         }
@@ -337,13 +368,13 @@ if (tourNextBtn) {
 
 if (tourSkipBtn) {
     tourSkipBtn.addEventListener('click', () => {
-        const step = tourSteps[currentTourStep];
+        const step = activeTourSteps[currentTourStep];
         trackMapEvent('tour_exit_early', {
             step_index: currentTourStep,
             step_number: currentTourStep + 1,
             step_title: step?.title || null,
-            steps_remaining: Math.max(0, tourSteps.length - (currentTourStep + 1)),
-            total_steps: tourSteps.length
+            steps_remaining: Math.max(0, activeTourSteps.length - (currentTourStep + 1)),
+            total_steps: activeTourSteps.length
         });
         endTour();
     });
